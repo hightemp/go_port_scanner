@@ -13,3 +13,17 @@ scanner:
   scan_timeout: 0s
   # Available values: quiet, info, debug, trace.
   verbosity: quiet
+
+proxy:
+  enabled: false
+  # Available values: round_robin, random, least_connections.
+  strategy: round_robin
+  # Keep false unless an HTTPS proxy uses a certificate you explicitly trust.
+  tls_insecure_skip_verify: false
+  # Authentication may be included in a URL: http://user:password@proxy:8080.
+  # Supported schemes: http, https, socks5, socks5h, socks (SOCKS5 alias).
+  urls: []
+  # urls:
+  #   - http://127.0.0.1:8080
+  #   - https://proxy.example.com:8443
+  #   - socks5://127.0.0.1:1080

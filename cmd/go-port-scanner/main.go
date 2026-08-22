@@ -16,6 +16,7 @@ import (
 	"github.com/hightemp/go_port_scanner/internal/cli"
 	appconfig "github.com/hightemp/go_port_scanner/internal/config"
 	"github.com/hightemp/go_port_scanner/internal/logging"
+	"github.com/hightemp/go_port_scanner/internal/proxypool"
 	"github.com/hightemp/go_port_scanner/internal/scanner"
 )
 
@@ -52,11 +53,27 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		configuration.Scanner.Workers,
 	)
 
+	var scanDialer scanner.Dialer
+	if configuration.Proxy.Enabled {
+		proxyPool, err := proxypool.New(proxypool.Config{
+			URLs:                  configuration.Proxy.URLs,
+			Strategy:              proxypool.Strategy(configuration.Proxy.Strategy),
+			Timeout:               configuration.Scanner.DialTimeout.Duration,
+			TLSInsecureSkipVerify: configuration.Proxy.TLSInsecureSkipVerify,
+		})
+		if err != nil {
+			return fmt.Errorf("configure proxy pool: %w", err)
+		}
+		scanDialer = proxyPool
+		logger.Infof("Proxy pool enabled with %d proxies (%s)\n", proxyPool.Len(), proxyPool.Strategy())
+	}
+
 	portScanner, err := scanner.New(scanner.Config{
 		Targets:     configuration.Targets,
 		Ports:       ports,
 		Workers:     configuration.Scanner.Workers,
 		DialTimeout: configuration.Scanner.DialTimeout.Duration,
+		Dialer:      scanDialer,
 	})
 	if err != nil {
 		return fmt.Errorf("configure scanner: %w", err)

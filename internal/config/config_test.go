@@ -24,6 +24,13 @@ scanner:
   dial_timeout: 250ms
   scan_timeout: 30s
   verbosity: debug
+proxy:
+  enabled: true
+  strategy: random
+  tls_insecure_skip_verify: true
+  urls:
+    - http://proxy.example.com:8080
+    - socks5://127.0.0.1:1080
 `
 
 	got, err := Decode(strings.NewReader(yamlConfig))
@@ -50,6 +57,10 @@ scanner:
 	}
 	if got.VerbosityLevel() != 2 {
 		t.Errorf("VerbosityLevel() = %d, want 2", got.VerbosityLevel())
+	}
+	if !got.Proxy.Enabled || got.Proxy.Strategy != ProxyStrategyRandom ||
+		!got.Proxy.TLSInsecureSkipVerify || len(got.Proxy.URLs) != 2 {
+		t.Errorf("Proxy = %#v, want enabled random pool with two URLs", got.Proxy)
 	}
 }
 
@@ -87,6 +98,9 @@ func TestDecodeValidation(t *testing.T) {
 		{name: "zero dial timeout", yaml: "scanner: {dial_timeout: 0s}\n"},
 		{name: "negative scan timeout", yaml: "scanner: {scan_timeout: -1s}\n"},
 		{name: "unknown verbosity", yaml: "scanner: {verbosity: verbose}\n"},
+		{name: "enabled proxy without URLs", yaml: "proxy: {enabled: true}\n"},
+		{name: "empty proxy URL", yaml: "proxy: {urls: ['']}\n"},
+		{name: "unknown proxy strategy", yaml: "proxy: {strategy: first}\n"},
 		{name: "multiple documents", yaml: "---\nscanner: {workers: 1}\n---\nscanner: {workers: 2}\n"},
 	}
 

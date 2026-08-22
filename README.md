@@ -39,6 +39,35 @@ Use another file with `-config path/to/config.yaml`. An empty `-config ""`
 uses the built-in defaults. Explicit `-host`, `-start`, `-end`, `-workers`,
 `-timeout`, `-scan-timeout`, and verbosity flags override YAML values.
 
+### Proxy pool
+
+The proxy pool is disabled by default. When enabled, every target/port
+connection selects a proxy according to the configured strategy; the scanner
+never falls back to a direct connection if a proxy fails.
+
+```yaml
+proxy:
+  enabled: true
+  strategy: round_robin
+  tls_insecure_skip_verify: false
+  urls:
+    - http://user:password@127.0.0.1:8080
+    - https://proxy.example.com:8443
+    - socks5://127.0.0.1:1080
+```
+
+Supported strategies are:
+
+- `round_robin` — cycles through proxies in their configured order.
+- `random` — selects a random proxy for every connection.
+- `least_connections` — selects the proxy with the fewest active connections.
+
+Supported schemes are `http`, `https`, `socks5`, `socks5h`, and `socks` (the
+last three use SOCKS5). HTTP Basic and SOCKS5 username/password authentication
+can be supplied in the URL. HTTP and HTTPS proxies use the CONNECT method. Set
+`tls_insecure_skip_verify: true` only for an HTTPS proxy whose certificate you
+have explicitly chosen not to verify.
+
 ## Release
 
 Update `VERSION`, then run:

@@ -25,6 +25,9 @@ const DefaultPath = "config.yaml"
 // Verbosity controls which diagnostic messages are shown.
 type Verbosity string
 
+// ProxyStrategy controls how a proxy is selected for each connection.
+type ProxyStrategy string
+
 const (
 	// VerbosityQuiet only prints open ports.
 	VerbosityQuiet Verbosity = "quiet"
@@ -34,6 +37,13 @@ const (
 	VerbosityDebug Verbosity = "debug"
 	// VerbosityTrace adds an event for every checked port.
 	VerbosityTrace Verbosity = "trace"
+
+	// ProxyStrategyRoundRobin selects proxies sequentially and wraps around.
+	ProxyStrategyRoundRobin ProxyStrategy = "round_robin"
+	// ProxyStrategyRandom selects a random proxy for every connection.
+	ProxyStrategyRandom ProxyStrategy = "random"
+	// ProxyStrategyLeastConnections selects the proxy with the fewest active connections.
+	ProxyStrategyLeastConnections ProxyStrategy = "least_connections"
 )
 
 // PortRange describes an inclusive TCP port range.
@@ -108,11 +118,20 @@ type Scanner struct {
 	Verbosity   Verbosity `yaml:"verbosity"`
 }
 
+// Proxy contains optional HTTP, HTTPS, and SOCKS5 proxy pool settings.
+type Proxy struct {
+	Enabled               bool          `yaml:"enabled"`
+	Strategy              ProxyStrategy `yaml:"strategy"`
+	TLSInsecureSkipVerify bool          `yaml:"tls_insecure_skip_verify"`
+	URLs                  []string      `yaml:"urls"`
+}
+
 // Config contains the complete scanner configuration.
 type Config struct {
 	Targets []string    `yaml:"targets"`
 	Ports   []PortRange `yaml:"ports"`
 	Scanner Scanner     `yaml:"scanner"`
+	Proxy   Proxy       `yaml:"proxy"`
 }
 
 // Default returns the built-in scanner configuration.
@@ -125,6 +144,11 @@ func Default() Config {
 			DialTimeout: Duration{Duration: time.Second},
 			ScanTimeout: Duration{},
 			Verbosity:   VerbosityQuiet,
+		},
+		Proxy: Proxy{
+			Enabled:  false,
+			Strategy: ProxyStrategyRoundRobin,
+			URLs:     []string{},
 		},
 	}
 }
@@ -170,7 +194,7 @@ func Decode(reader io.Reader) (Config, error) {
 	return loaded, nil
 }
 
-// Validate verifies all targets, ranges, timeouts, and worker settings.
+// Validate verifies all targets, ranges, scanner settings, and proxy settings.
 func (c Config) Validate() error {
 	if len(c.Targets) == 0 {
 		return errors.New("targets must not be empty")
@@ -196,6 +220,19 @@ func (c Config) Validate() error {
 	}
 	if c.Scanner.ScanTimeout.Duration < 0 {
 		return errors.New("scanner.scan_timeout must not be negative")
+	}
+	if c.Proxy.Enabled && len(c.Proxy.URLs) == 0 {
+		return errors.New("proxy.urls must not be empty when proxy is enabled")
+	}
+	for index, proxyURL := range c.Proxy.URLs {
+		if strings.TrimSpace(proxyURL) == "" {
+			return fmt.Errorf("proxy.urls[%d] must not be empty", index)
+		}
+	}
+	switch c.Proxy.Strategy {
+	case ProxyStrategyRoundRobin, ProxyStrategyRandom, ProxyStrategyLeastConnections:
+	default:
+		return fmt.Errorf("unsupported proxy.strategy %q", c.Proxy.Strategy)
 	}
 	switch c.Scanner.Verbosity {
 	case VerbosityQuiet, VerbosityInfo, VerbosityDebug, VerbosityTrace:

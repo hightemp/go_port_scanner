@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strconv"
 	"testing"
@@ -109,4 +110,49 @@ func TestScanFindsOpenPort(t *testing.T) {
 			t.Errorf("Scan() event target = %s:%d, want 127.0.0.1:%d", event.Host, event.Port, port)
 		}
 	}
+}
+
+func TestScanUsesConfiguredDialer(t *testing.T) {
+	t.Parallel()
+
+	dialer := &recordingDialer{addresses: make(chan string, 1)}
+	portScanner, err := New(Config{
+		Targets:     []string{"example.com"},
+		Ports:       []int{443},
+		Workers:     1,
+		DialTimeout: time.Second,
+		Dialer:      dialer,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	var sawOpen bool
+	for event := range portScanner.Scan(context.Background()) {
+		if event.Kind == EventOpen {
+			sawOpen = true
+		}
+	}
+	if !sawOpen {
+		t.Fatal("Scan() did not emit an open event")
+	}
+	if got := <-dialer.addresses; got != "example.com:443" {
+		t.Errorf("DialContext() address = %q, want example.com:443", got)
+	}
+}
+
+type recordingDialer struct {
+	addresses chan string
+}
+
+func (d *recordingDialer) DialContext(_ context.Context, _, address string) (net.Conn, error) {
+	d.addresses <- address
+	client, server := net.Pipe()
+	if err := server.Close(); err != nil {
+		if closeErr := client.Close(); closeErr != nil {
+			return nil, errors.Join(err, closeErr)
+		}
+		return nil, err
+	}
+	return client, nil
 }

@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -55,6 +59,46 @@ func TestRunFindsOpenPort(t *testing.T) {
 	}
 	if want := "TCP: " + strconv.Itoa(portNumber); !strings.Contains(stdout.String(), want) {
 		t.Errorf("run() output = %q, want it to contain %q", stdout.String(), want)
+	}
+}
+
+func TestRunUsesProxyPool(t *testing.T) {
+	t.Parallel()
+
+	proxyServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodConnect {
+			writer.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer proxyServer.Close()
+
+	configPath := t.TempDir() + "/config.yaml"
+	yamlConfig := fmt.Sprintf(`
+targets: [example.com]
+ports: [443]
+scanner:
+  workers: 1
+  dial_timeout: 1s
+  scan_timeout: 0s
+  verbosity: info
+proxy:
+  enabled: true
+  strategy: round_robin
+  urls: [%q]
+`, proxyServer.URL)
+	if err := os.WriteFile(configPath, []byte(yamlConfig), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := run(context.Background(), []string{"-config", configPath}, &stdout, &bytes.Buffer{}); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	if !strings.Contains(stdout.String(), "Proxy pool enabled with 1 proxies (round_robin)") ||
+		!strings.Contains(stdout.String(), "TCP: 443") {
+		t.Errorf("run() output = %q, want proxy pool and open port messages", stdout.String())
 	}
 }
 

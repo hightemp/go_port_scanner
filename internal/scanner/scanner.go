@@ -18,6 +18,11 @@ type target struct {
 	port int
 }
 
+// Dialer establishes context-aware TCP connections.
+type Dialer interface {
+	DialContext(ctx context.Context, network, address string) (net.Conn, error)
+}
+
 // EventKind describes a state observed while checking a port.
 type EventKind uint8
 
@@ -45,6 +50,7 @@ type Config struct {
 	Ports       []int
 	Workers     int
 	DialTimeout time.Duration
+	Dialer      Dialer
 }
 
 // Scanner checks a configured TCP port range concurrently.
@@ -137,7 +143,10 @@ func (s *Scanner) sendTargets(ctx context.Context, targets chan<- target) {
 }
 
 func (s *Scanner) worker(ctx context.Context, targets <-chan target, events chan<- Event) {
-	dialer := net.Dialer{Timeout: s.config.DialTimeout}
+	var dialer Dialer = &net.Dialer{Timeout: s.config.DialTimeout}
+	if s.config.Dialer != nil {
+		dialer = s.config.Dialer
+	}
 
 	for {
 		select {
