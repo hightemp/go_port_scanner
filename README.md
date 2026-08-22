@@ -3,6 +3,10 @@
 This is a simple TCP port scanner written in Go. 
 
 ```console
+$ make build
+```
+
+```console
 $ ./go_port_scanner -host 192.168.31.142 -workers 10000 
 TCP: 22
 TCP: 5000
