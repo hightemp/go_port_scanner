@@ -41,6 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
+          cp config.example.yaml dist/config.example.yaml
 
           for target in \
             linux/amd64 linux/arm64 \
@@ -61,7 +62,7 @@ jobs:
 
           (
             cd dist
-            sha256sum go_port_scanner_* > checksums.txt
+            sha256sum config.example.yaml go_port_scanner_* > checksums.txt
           )
 
       - name: Create GitHub release

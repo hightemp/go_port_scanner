@@ -1,0 +1,15 @@
+# Targets may contain IPv4, IPv6, or hostnames.
+targets:
+  - localhost
+
+# A port may be a single number or an inclusive range.
+ports:
+  - 1-65535
+
+scanner:
+  workers: 10000
+  dial_timeout: 1s
+  # Zero disables the timeout for the whole scan.
+  scan_timeout: 0s
+  # Available values: quiet, info, debug, trace.
+  verbosity: quiet

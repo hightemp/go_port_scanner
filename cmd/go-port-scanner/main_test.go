@@ -6,9 +6,14 @@ import (
 	"errors"
 	"io"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/hightemp/go_port_scanner/internal/cli"
+	appconfig "github.com/hightemp/go_port_scanner/internal/config"
 )
 
 func TestRunFindsOpenPort(t *testing.T) {
@@ -32,6 +37,7 @@ func TestRunFindsOpenPort(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	args := []string{
+		"-config", "",
 		"-host", "127.0.0.1",
 		"-workers", "2",
 		"-start", port,
@@ -75,21 +81,21 @@ func TestRunErrors(t *testing.T) {
 		{
 			name:   "invalid configuration",
 			ctx:    context.Background(),
-			args:   []string{"-workers", "0"},
+			args:   []string{"-config", "", "-workers", "0"},
 			stdout: &bytes.Buffer{},
 			want:   "workers must be greater than zero",
 		},
 		{
 			name:   "cancelled context",
 			ctx:    cancelledContext,
-			args:   []string{"-workers", "1", "-start", "1", "-end", "1"},
+			args:   []string{"-config", "", "-workers", "1", "-start", "1", "-end", "1"},
 			stdout: &bytes.Buffer{},
 			want:   "scan interrupted",
 		},
 		{
 			name:   "output failure",
 			ctx:    context.Background(),
-			args:   []string{"-host", "127.0.0.1", "-workers", "1", "-start", "1", "-end", "1", "-v"},
+			args:   []string{"-config", "", "-host", "127.0.0.1", "-workers", "1", "-start", "1", "-end", "1", "-v"},
 			stdout: mainFailingWriter{},
 			want:   "write log output",
 		},
@@ -116,6 +122,78 @@ func TestRunHelp(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Usage of go_port_scanner") {
 		t.Errorf("run() help = %q, want usage", stderr.String())
+	}
+}
+
+func TestLoadConfigAppliesOverrides(t *testing.T) {
+	t.Parallel()
+
+	host := "127.0.0.1"
+	workers := 4
+	startPort := 80
+	endPort := 82
+	dialTimeout := 250 * time.Millisecond
+	scanTimeout := time.Minute
+	verbosityLevel := 3
+
+	got, err := loadConfig(cli.Options{
+		ConfigPath:  "",
+		Host:        &host,
+		Workers:     &workers,
+		StartPort:   &startPort,
+		EndPort:     &endPort,
+		DialTimeout: &dialTimeout,
+		ScanTimeout: &scanTimeout,
+		Verbosity:   &verbosityLevel,
+	})
+	if err != nil {
+		t.Fatalf("loadConfig() error = %v", err)
+	}
+
+	if !slices.Equal(got.Targets, []string{host}) {
+		t.Errorf("Targets = %v, want [%s]", got.Targets, host)
+	}
+	if !slices.Equal(got.ExpandedPorts(), []int{80, 81, 82}) {
+		t.Errorf("ExpandedPorts() = %v, want [80 81 82]", got.ExpandedPorts())
+	}
+	if got.Scanner.Workers != workers ||
+		got.Scanner.DialTimeout.Duration != dialTimeout ||
+		got.Scanner.ScanTimeout.Duration != scanTimeout ||
+		got.Scanner.Verbosity != appconfig.VerbosityTrace {
+		t.Errorf("Scanner overrides were not applied: %#v", got.Scanner)
+	}
+}
+
+func TestLoadConfigMissingFile(t *testing.T) {
+	t.Parallel()
+
+	_, err := loadConfig(cli.Options{ConfigPath: t.TempDir() + "/missing.yaml"})
+	if err == nil || !strings.Contains(err.Error(), "open config") {
+		t.Fatalf("loadConfig() error = %v, want open config error", err)
+	}
+}
+
+func TestVerbosity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		level int
+		want  appconfig.Verbosity
+	}{
+		{level: 0, want: appconfig.VerbosityQuiet},
+		{level: 1, want: appconfig.VerbosityInfo},
+		{level: 2, want: appconfig.VerbosityDebug},
+		{level: 3, want: appconfig.VerbosityTrace},
+	}
+
+	for _, tt := range tests {
+		t.Run(strconv.Itoa(tt.level), func(t *testing.T) {
+			t.Parallel()
+
+			if got := verbosity(tt.level); got != tt.want {
+				t.Errorf("verbosity(%d) = %q, want %q", tt.level, got, tt.want)
+			}
+		})
 	}
 }
 

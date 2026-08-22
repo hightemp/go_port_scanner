@@ -12,10 +12,9 @@ func TestNewValidation(t *testing.T) {
 	t.Parallel()
 
 	valid := Config{
-		Host:        "localhost",
+		Targets:     []string{"localhost"},
+		Ports:       []int{1},
 		Workers:     1,
-		StartPort:   1,
-		EndPort:     1,
 		DialTimeout: time.Second,
 	}
 
@@ -23,10 +22,11 @@ func TestNewValidation(t *testing.T) {
 		name   string
 		change func(*Config)
 	}{
-		{name: "empty host", change: func(config *Config) { config.Host = "" }},
-		{name: "invalid start port", change: func(config *Config) { config.StartPort = 0 }},
-		{name: "invalid end port", change: func(config *Config) { config.EndPort = maxPort + 1 }},
-		{name: "reversed range", change: func(config *Config) { config.StartPort, config.EndPort = 2, 1 }},
+		{name: "empty targets", change: func(config *Config) { config.Targets = nil }},
+		{name: "empty host", change: func(config *Config) { config.Targets = []string{""} }},
+		{name: "empty ports", change: func(config *Config) { config.Ports = nil }},
+		{name: "port below range", change: func(config *Config) { config.Ports = []int{0} }},
+		{name: "port above range", change: func(config *Config) { config.Ports = []int{maxPort + 1} }},
 		{name: "zero workers", change: func(config *Config) { config.Workers = 0 }},
 		{name: "zero timeout", change: func(config *Config) { config.DialTimeout = 0 }},
 	}
@@ -47,18 +47,20 @@ func TestNewValidation(t *testing.T) {
 func TestNewAdjustsWorkerCount(t *testing.T) {
 	t.Parallel()
 
-	scanner, err := New(Config{
-		Host:        "localhost",
+	portScanner, err := New(Config{
+		Targets:     []string{"host-a", "host-b"},
+		Ports:       []int{80, 81},
 		Workers:     100,
-		StartPort:   80,
-		EndPort:     81,
 		DialTimeout: time.Second,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if got, want := scanner.Workers(), 2; got != want {
+	if got, want := portScanner.Workers(), 4; got != want {
 		t.Errorf("Workers() = %d, want %d", got, want)
+	}
+	if got, want := portScanner.Checks(), 4; got != want {
+		t.Errorf("Checks() = %d, want %d", got, want)
 	}
 }
 
@@ -85,22 +87,26 @@ func TestScanFindsOpenPort(t *testing.T) {
 	}
 
 	portScanner, err := New(Config{
-		Host:        "127.0.0.1",
+		Targets:     []string{"127.0.0.1"},
+		Ports:       []int{port},
 		Workers:     1,
-		StartPort:   port,
-		EndPort:     port,
 		DialTimeout: time.Second,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	var kinds []EventKind
+	var events []Event
 	for event := range portScanner.Scan(context.Background()) {
-		kinds = append(kinds, event.Kind)
+		events = append(events, event)
 	}
 
-	if len(kinds) != 2 || kinds[0] != EventChecking || kinds[1] != EventOpen {
-		t.Fatalf("Scan() event kinds = %v, want [%v %v]", kinds, EventChecking, EventOpen)
+	if len(events) != 2 || events[0].Kind != EventChecking || events[1].Kind != EventOpen {
+		t.Fatalf("Scan() events = %v, want checking and open", events)
+	}
+	for _, event := range events {
+		if event.Host != "127.0.0.1" || event.Port != port {
+			t.Errorf("Scan() event target = %s:%d, want 127.0.0.1:%d", event.Host, event.Port, port)
+		}
 	}
 }

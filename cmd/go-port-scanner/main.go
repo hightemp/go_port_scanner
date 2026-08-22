@@ -6,12 +6,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/hightemp/go_port_scanner/internal/cli"
+	appconfig "github.com/hightemp/go_port_scanner/internal/config"
 	"github.com/hightemp/go_port_scanner/internal/logging"
 	"github.com/hightemp/go_port_scanner/internal/scanner"
 )
@@ -35,54 +38,70 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("parse arguments: %w", err)
 	}
 
-	logger := logging.New(stdout, logging.Level(options.Verbosity))
+	configuration, err := loadConfig(options)
+	if err != nil {
+		return err
+	}
+	ports := configuration.ExpandedPorts()
+
+	logger := logging.New(stdout, logging.Level(configuration.VerbosityLevel()))
 	logger.Infof(
-		"Starting scan of %s (ports %d-%d) with %d workers\n",
-		options.Host,
-		options.StartPort,
-		options.EndPort,
-		options.Workers,
+		"Starting scan of %d target(s), %d port(s) with %d workers\n",
+		len(configuration.Targets),
+		len(ports),
+		configuration.Scanner.Workers,
 	)
 
 	portScanner, err := scanner.New(scanner.Config{
-		Host:        options.Host,
-		Workers:     options.Workers,
-		StartPort:   options.StartPort,
-		EndPort:     options.EndPort,
-		DialTimeout: time.Second,
+		Targets:     configuration.Targets,
+		Ports:       ports,
+		Workers:     configuration.Scanner.Workers,
+		DialTimeout: configuration.Scanner.DialTimeout.Duration,
 	})
 	if err != nil {
 		return fmt.Errorf("configure scanner: %w", err)
 	}
 
-	if portScanner.Workers() != options.Workers {
+	if portScanner.Workers() != configuration.Scanner.Workers {
 		logger.Debugf("Adjusted workers count to %d\n", portScanner.Workers())
+	}
+
+	scanContext := ctx
+	if configuration.Scanner.ScanTimeout.Duration > 0 {
+		var cancel context.CancelFunc
+		scanContext, cancel = context.WithTimeout(ctx, configuration.Scanner.ScanTimeout.Duration)
+		defer cancel()
 	}
 
 	startedAt := time.Now()
 	logger.Debugf("Starting %d workers...\n", portScanner.Workers())
-	logger.Debugf("Sending ports to workers...\n")
+	logger.Debugf("Sending %d checks to workers...\n", portScanner.Checks())
 
-	for event := range portScanner.Scan(ctx) {
+	for event := range portScanner.Scan(scanContext) {
 		switch event.Kind {
 		case scanner.EventChecking:
-			logger.Tracef("Checking port %d...\n", event.Port)
+			logger.Tracef("Checking %s port %d...\n", event.Host, event.Port)
 		case scanner.EventOpen:
-			logger.Printf("TCP: %d\n", event.Port)
+			if len(configuration.Targets) == 1 {
+				logger.Printf("TCP: %d\n", event.Port)
+			} else {
+				logger.Printf("TCP: %s\n", net.JoinHostPort(event.Host, strconv.Itoa(event.Port)))
+			}
 			logger.Debugf(
-				"Connection established to port %d in %v\n",
+				"Connection established to %s port %d in %v\n",
+				event.Host,
 				event.Port,
 				event.Duration,
 			)
 			if event.Err != nil {
-				logger.Debugf("Could not close connection to port %d: %v\n", event.Port, event.Err)
+				logger.Debugf("Could not close connection to %s port %d: %v\n", event.Host, event.Port, event.Err)
 			}
 		case scanner.EventClosed:
-			logger.Tracef("Port %d is closed (%v)\n", event.Port, event.Err)
+			logger.Tracef("%s port %d is closed (%v)\n", event.Host, event.Port, event.Err)
 		}
 	}
 
-	if err := ctx.Err(); err != nil {
+	if err := scanContext.Err(); err != nil {
 		return fmt.Errorf("scan interrupted: %w", err)
 	}
 
@@ -92,4 +111,55 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	return nil
+}
+
+func loadConfig(options cli.Options) (appconfig.Config, error) {
+	configuration := appconfig.Default()
+	if options.ConfigPath != "" {
+		loaded, err := appconfig.Load(options.ConfigPath)
+		if err != nil {
+			return appconfig.Config{}, err
+		}
+		configuration = loaded
+	}
+
+	if options.Host != nil {
+		configuration.Targets = []string{*options.Host}
+	}
+	if options.StartPort != nil && options.EndPort != nil {
+		configuration.Ports = []appconfig.PortRange{{
+			Start: *options.StartPort,
+			End:   *options.EndPort,
+		}}
+	}
+	if options.Workers != nil {
+		configuration.Scanner.Workers = *options.Workers
+	}
+	if options.DialTimeout != nil {
+		configuration.Scanner.DialTimeout.Duration = *options.DialTimeout
+	}
+	if options.ScanTimeout != nil {
+		configuration.Scanner.ScanTimeout.Duration = *options.ScanTimeout
+	}
+	if options.Verbosity != nil {
+		configuration.Scanner.Verbosity = verbosity(*options.Verbosity)
+	}
+
+	if err := configuration.Validate(); err != nil {
+		return appconfig.Config{}, fmt.Errorf("validate config: %w", err)
+	}
+	return configuration, nil
+}
+
+func verbosity(level int) appconfig.Verbosity {
+	switch level {
+	case 1:
+		return appconfig.VerbosityInfo
+	case 2:
+		return appconfig.VerbosityDebug
+	case 3:
+		return appconfig.VerbosityTrace
+	default:
+		return appconfig.VerbosityQuiet
+	}
 }

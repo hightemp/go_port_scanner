@@ -2,8 +2,10 @@ package cli
 
 import (
 	"io"
-	"reflect"
 	"testing"
+	"time"
+
+	"github.com/hightemp/go_port_scanner/internal/config"
 )
 
 func TestParse(t *testing.T) {
@@ -12,36 +14,57 @@ func TestParse(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
-		want Options
+		want func(t *testing.T, got Options)
 	}{
 		{
-			name: "defaults",
-			want: Options{
-				Host:      "localhost",
-				Workers:   10000,
-				StartPort: 1,
-				EndPort:   65535,
+			name: "defaults use YAML",
+			want: func(t *testing.T, got Options) {
+				if got.ConfigPath != config.DefaultPath {
+					t.Errorf("ConfigPath = %q, want %q", got.ConfigPath, config.DefaultPath)
+				}
+				if got.Host != nil || got.Workers != nil || got.StartPort != nil ||
+					got.EndPort != nil || got.DialTimeout != nil || got.ScanTimeout != nil ||
+					got.Verbosity != nil {
+					t.Errorf("defaults unexpectedly contain overrides: %#v", got)
+				}
 			},
 		},
 		{
-			name: "custom scan",
-			args: []string{"-host", "127.0.0.1", "-workers", "20", "-start", "80", "-end", "443"},
-			want: Options{
-				Host:      "127.0.0.1",
-				Workers:   20,
-				StartPort: 80,
-				EndPort:   443,
+			name: "all overrides",
+			args: []string{
+				"-config", "custom.yaml",
+				"-host", "127.0.0.1",
+				"-workers", "20",
+				"-start", "80",
+				"-end", "443",
+				"-timeout", "250ms",
+				"-scan-timeout", "2m",
+				"-vv",
+			},
+			want: func(t *testing.T, got Options) {
+				assertEqual(t, "ConfigPath", got.ConfigPath, "custom.yaml")
+				assertPointer(t, "Host", got.Host, "127.0.0.1")
+				assertPointer(t, "Workers", got.Workers, 20)
+				assertPointer(t, "StartPort", got.StartPort, 80)
+				assertPointer(t, "EndPort", got.EndPort, 443)
+				assertPointer(t, "DialTimeout", got.DialTimeout, 250*time.Millisecond)
+				assertPointer(t, "ScanTimeout", got.ScanTimeout, 2*time.Minute)
+				assertPointer(t, "Verbosity", got.Verbosity, 2)
 			},
 		},
 		{
 			name: "highest verbosity wins",
 			args: []string{"-v", "-vv", "-vvv"},
-			want: Options{
-				Host:      "localhost",
-				Workers:   10000,
-				StartPort: 1,
-				EndPort:   65535,
-				Verbosity: 3,
+			want: func(t *testing.T, got Options) {
+				assertPointer(t, "Verbosity", got.Verbosity, 3)
+			},
+		},
+		{
+			name: "one port boundary uses legacy default for other boundary",
+			args: []string{"-start", "100"},
+			want: func(t *testing.T, got Options) {
+				assertPointer(t, "StartPort", got.StartPort, 100)
+				assertPointer(t, "EndPort", got.EndPort, 65535)
 			},
 		},
 	}
@@ -54,9 +77,22 @@ func TestParse(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Parse() error = %v", err)
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Parse() = %#v, want %#v", got, tt.want)
-			}
+			tt.want(t, got)
 		})
+	}
+}
+
+func assertPointer[T comparable](t *testing.T, name string, got *T, want T) {
+	t.Helper()
+	if got == nil {
+		t.Fatalf("%s = nil, want %v", name, want)
+	}
+	assertEqual(t, name, *got, want)
+}
+
+func assertEqual[T comparable](t *testing.T, name string, got, want T) {
+	t.Helper()
+	if got != want {
+		t.Errorf("%s = %v, want %v", name, got, want)
 	}
 }

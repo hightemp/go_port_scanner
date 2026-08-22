@@ -13,6 +13,11 @@ import (
 
 const maxPort = 65535
 
+type target struct {
+	host string
+	port int
+}
+
 // EventKind describes a state observed while checking a port.
 type EventKind uint8
 
@@ -28,6 +33,7 @@ const (
 // Event describes one observable step of a port scan.
 type Event struct {
 	Kind     EventKind
+	Host     string
 	Port     int
 	Duration time.Duration
 	Err      error
@@ -35,10 +41,9 @@ type Event struct {
 
 // Config defines the target, range, concurrency, and timeout for a scan.
 type Config struct {
-	Host        string
+	Targets     []string
+	Ports       []int
 	Workers     int
-	StartPort   int
-	EndPort     int
 	DialTimeout time.Duration
 }
 
@@ -49,17 +54,21 @@ type Scanner struct {
 
 // New validates config and constructs a Scanner.
 func New(config Config) (*Scanner, error) {
-	if config.Host == "" {
-		return nil, errors.New("host must not be empty")
+	if len(config.Targets) == 0 {
+		return nil, errors.New("targets must not be empty")
 	}
-	if config.StartPort < 1 || config.StartPort > maxPort {
-		return nil, fmt.Errorf("start port must be between 1 and %d", maxPort)
+	for index, host := range config.Targets {
+		if host == "" {
+			return nil, fmt.Errorf("targets[%d] must not be empty", index)
+		}
 	}
-	if config.EndPort < 1 || config.EndPort > maxPort {
-		return nil, fmt.Errorf("end port must be between 1 and %d", maxPort)
+	if len(config.Ports) == 0 {
+		return nil, errors.New("ports must not be empty")
 	}
-	if config.StartPort > config.EndPort {
-		return nil, errors.New("start port must not be greater than end port")
+	for index, port := range config.Ports {
+		if port < 1 || port > maxPort {
+			return nil, fmt.Errorf("ports[%d] must be between 1 and %d", index, maxPort)
+		}
 	}
 	if config.Workers < 1 {
 		return nil, errors.New("workers must be greater than zero")
@@ -68,10 +77,12 @@ func New(config Config) (*Scanner, error) {
 		return nil, errors.New("dial timeout must be greater than zero")
 	}
 
-	portCount := config.EndPort - config.StartPort + 1
-	if config.Workers > portCount {
-		config.Workers = portCount
+	checkCount := len(config.Targets) * len(config.Ports)
+	if config.Workers > checkCount {
+		config.Workers = checkCount
 	}
+	config.Targets = append([]string(nil), config.Targets...)
+	config.Ports = append([]int(nil), config.Ports...)
 
 	return &Scanner{config: config}, nil
 }
@@ -81,11 +92,16 @@ func (s *Scanner) Workers() int {
 	return s.config.Workers
 }
 
+// Checks returns the total number of target and port combinations.
+func (s *Scanner) Checks() int {
+	return len(s.config.Targets) * len(s.config.Ports)
+}
+
 // Scan starts the worker pool and returns its event stream.
 // The channel is closed after every worker exits or ctx is cancelled.
 func (s *Scanner) Scan(ctx context.Context) <-chan Event {
 	events := make(chan Event, s.config.Workers)
-	ports := make(chan int, s.config.Workers)
+	targets := make(chan target, s.config.Workers)
 
 	go func() {
 		var workers sync.WaitGroup
@@ -94,11 +110,11 @@ func (s *Scanner) Scan(ctx context.Context) <-chan Event {
 		for range s.config.Workers {
 			go func() {
 				defer workers.Done()
-				s.worker(ctx, ports, events)
+				s.worker(ctx, targets, events)
 			}()
 		}
 
-		s.sendPorts(ctx, ports)
+		s.sendTargets(ctx, targets)
 		workers.Wait()
 		close(events)
 	}()
@@ -106,41 +122,52 @@ func (s *Scanner) Scan(ctx context.Context) <-chan Event {
 	return events
 }
 
-func (s *Scanner) sendPorts(ctx context.Context, ports chan<- int) {
-	defer close(ports)
+func (s *Scanner) sendTargets(ctx context.Context, targets chan<- target) {
+	defer close(targets)
 
-	for port := s.config.StartPort; port <= s.config.EndPort; port++ {
-		select {
-		case ports <- port:
-		case <-ctx.Done():
-			return
+	for _, host := range s.config.Targets {
+		for _, port := range s.config.Ports {
+			select {
+			case targets <- target{host: host, port: port}:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}
 }
 
-func (s *Scanner) worker(ctx context.Context, ports <-chan int, events chan<- Event) {
+func (s *Scanner) worker(ctx context.Context, targets <-chan target, events chan<- Event) {
 	dialer := net.Dialer{Timeout: s.config.DialTimeout}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case port, ok := <-ports:
+		case current, ok := <-targets:
 			if !ok {
 				return
 			}
-			if !emit(ctx, events, Event{Kind: EventChecking, Port: port}) {
+			if !emit(ctx, events, Event{
+				Kind: EventChecking,
+				Host: current.host,
+				Port: current.port,
+			}) {
 				return
 			}
 
 			startedAt := time.Now()
-			address := net.JoinHostPort(s.config.Host, strconv.Itoa(port))
+			address := net.JoinHostPort(current.host, strconv.Itoa(current.port))
 			connection, err := dialer.DialContext(ctx, "tcp", address)
 			if err != nil {
 				if ctx.Err() != nil {
 					return
 				}
-				if !emit(ctx, events, Event{Kind: EventClosed, Port: port, Err: err}) {
+				if !emit(ctx, events, Event{
+					Kind: EventClosed,
+					Host: current.host,
+					Port: current.port,
+					Err:  err,
+				}) {
 					return
 				}
 				continue
@@ -148,7 +175,8 @@ func (s *Scanner) worker(ctx context.Context, ports <-chan int, events chan<- Ev
 
 			event := Event{
 				Kind:     EventOpen,
-				Port:     port,
+				Host:     current.host,
+				Port:     current.port,
 				Duration: time.Since(startedAt),
 			}
 			if err := connection.Close(); err != nil {
