@@ -16,6 +16,13 @@ import (
 	"time"
 )
 
+const winRMIdentifyResponse = `<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">` +
+	`<s:Body><wsmid:IdentifyResponse xmlns:wsmid="http://schemas.dmtf.org/wbem/wsman/identity/1/wsmanidentity.xsd">` +
+	`<wsmid:ProtocolVersion>http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd</wsmid:ProtocolVersion>` +
+	`<wsmid:ProductVendor>Microsoft Corporation</wsmid:ProductVendor>` +
+	`<wsmid:ProductVersion>OS: 10.0 Stack: 3.0</wsmid:ProductVersion>` +
+	`</wsmid:IdentifyResponse></s:Body></s:Envelope>`
+
 func TestProtocolProbes(t *testing.T) {
 	t.Parallel()
 
@@ -155,6 +162,71 @@ func TestProtocolProbes(t *testing.T) {
 			name: "etcd", protocol: etcdProbe{}, wantDetail: "server 3.6.0, cluster 3.6",
 			server: httpServer(`{"etcdserver":"3.6.0","etcdcluster":"3.6"}`, nil),
 		},
+		{
+			name: "rdp", protocol: rdpProbe{},
+			wantDetail: "X.224 Connection Confirm (selected protocol 0x00000002)",
+			server: readThenWriteServer(19, []byte{
+				0x03, 0x00, 0x00, 0x13,
+				0x0e, 0xd0, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x02, 0x00, 0x08, 0x00, 0x02, 0x00, 0x00, 0x00,
+			}),
+		},
+		{
+			name: "smb", protocol: smbProbe{},
+			wantDetail: "SMB2 NEGOTIATE response (dialect 0x0311)",
+			server: func(connection net.Conn) error {
+				request := make([]byte, len(smbNegotiateRequest()))
+				if _, err := io.ReadFull(connection, request); err != nil {
+					return err
+				}
+				response := make([]byte, 4+129)
+				response[3] = 129
+				copy(response[4:8], []byte{'\xfe', 'S', 'M', 'B'})
+				binary.LittleEndian.PutUint16(response[8:10], 64)
+				binary.LittleEndian.PutUint32(response[20:24], 1)
+				binary.LittleEndian.PutUint16(response[68:70], 65)
+				binary.LittleEndian.PutUint16(response[72:74], 0x0311)
+				return writeAll(connection, response)
+			},
+		},
+		{
+			name: "netbios", protocol: netbiosProbe{},
+			wantDetail: "negative Session Response (code 0x82)",
+			server:     readThenWriteServer(72, []byte{0x83, 0x00, 0x00, 0x01, 0x82}),
+		},
+		{
+			name: "msrpc", protocol: msrpcProbe{},
+			wantDetail: "DCE/RPC Endpoint Mapper bind_ack",
+			server: readThenWriteServer(72, []byte{
+				0x05, 0x00, 0x0c, 0x03, 0x10, 0x00, 0x00, 0x00,
+				0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+			}),
+		},
+		{
+			name: "kerberos", protocol: kerberosProbe{},
+			wantDetail: "Kerberos KRB-ERROR",
+			server: func(connection net.Conn) error {
+				length := make([]byte, 4)
+				if _, err := io.ReadFull(connection, length); err != nil {
+					return err
+				}
+				request := make([]byte, binary.BigEndian.Uint32(length))
+				if _, err := io.ReadFull(connection, request); err != nil {
+					return err
+				}
+				return writeAll(connection, []byte{0, 0, 0, 5, 0x7e, 0x03, 0x30, 0x01, 0x00})
+			},
+		},
+		{
+			name: "ldap", protocol: ldapProbe{},
+			wantDetail: "LDAPv3 BindResponse (result code 0)",
+			server:     readThenWriteServer(14, ldapBindResponse(0)),
+		},
+		{
+			name: "winrm", protocol: winrmProbe{},
+			wantDetail: "Microsoft Corporation OS: 10.0 Stack: 3.0",
+			server:     httpServer(winRMIdentifyResponse, nil),
+		},
 	}
 
 	for _, tt := range tests {
@@ -171,7 +243,7 @@ func TestProtocolProbes(t *testing.T) {
 	}
 }
 
-func TestFTPSProbes(t *testing.T) {
+func TestTLSProbes(t *testing.T) {
 	t.Parallel()
 
 	certificateServer := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
@@ -217,6 +289,34 @@ func TestFTPSProbes(t *testing.T) {
 				return writeAll(tlsConnection, []byte("220 secure ready\r\n"))
 			},
 		},
+		{
+			name:       "ldaps",
+			protocol:   ldapsProbe{tlsInsecureSkipVerify: true},
+			wantDetail: "LDAPv3 BindResponse (result code 0)",
+			server: func(connection net.Conn) error {
+				tlsConnection := tls.Server(connection, &tls.Config{Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12})
+				if err := tlsConnection.Handshake(); err != nil {
+					return err
+				}
+				request := make([]byte, 14)
+				if _, err := io.ReadFull(tlsConnection, request); err != nil {
+					return err
+				}
+				return writeAll(tlsConnection, ldapBindResponse(0))
+			},
+		},
+		{
+			name:       "winrm https",
+			protocol:   winrmHTTPSProbe{tlsInsecureSkipVerify: true},
+			wantDetail: "Microsoft Corporation OS: 10.0 Stack: 3.0",
+			server: func(connection net.Conn) error {
+				tlsConnection := tls.Server(connection, &tls.Config{Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12})
+				if err := tlsConnection.Handshake(); err != nil {
+					return err
+				}
+				return httpServer(winRMIdentifyResponse, nil)(tlsConnection)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -236,6 +336,7 @@ func TestRegistry(t *testing.T) {
 	names := []string{
 		"ssh", "ftp", "ftps_explicit", "ftps_implicit", "postgresql", "mysql", "mongodb", "mssql",
 		"cassandra", "elasticsearch", "rabbitmq", "kafka", "nats", "mqtt", "redis", "memcached", "etcd",
+		"rdp", "smb", "netbios", "msrpc", "kerberos", "ldap", "ldaps", "winrm", "winrm_https",
 	}
 	definitions := make([]Definition, 0, len(names)+1)
 	for _, name := range names {
@@ -249,8 +350,8 @@ func TestRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRegistry() error = %v", err)
 	}
-	if got := registry.Count(); got != 18 {
-		t.Errorf("Count() = %d, want 18", got)
+	if got := registry.Count(); got != 27 {
+		t.Errorf("Count() = %d, want 27", got)
 	}
 	protocols := registry.ForPort(22)
 	if len(protocols) != len(names) || protocols[0].Name() != "ssh" || protocols[1].Name() != "ftp" {
@@ -396,6 +497,60 @@ func TestAlternativeProtocolResponses(t *testing.T) {
 			server:     readThenWriteServer(len("*1\r\n$4\r\nPING\r\n"), []byte("-NOAUTH authentication required\r\n")),
 			wantDetail: "NOAUTH authentication required",
 		},
+		{
+			name: "rdp negotiation failure", protocol: rdpProbe{},
+			server: readThenWriteServer(19, []byte{
+				0x03, 0x00, 0x00, 0x13,
+				0x0e, 0xd0, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x03, 0x00, 0x08, 0x00, 0x02, 0x00, 0x00, 0x00,
+			}),
+			wantDetail: "X.224 Connection Confirm (negotiation failure 0x00000002)",
+		},
+		{
+			name: "smb status", protocol: smbProbe{},
+			server: func(connection net.Conn) error {
+				request := make([]byte, len(smbNegotiateRequest()))
+				_, _ = io.ReadFull(connection, request)
+				response := make([]byte, 4+64)
+				response[3] = 64
+				copy(response[4:8], []byte{'\xfe', 'S', 'M', 'B'})
+				binary.LittleEndian.PutUint16(response[8:10], 64)
+				binary.LittleEndian.PutUint32(response[12:16], 0xc0000022)
+				binary.LittleEndian.PutUint32(response[20:24], 1)
+				return writeAll(connection, response)
+			},
+			wantDetail: "SMB2 NEGOTIATE response (status 0xc0000022)",
+		},
+		{
+			name: "netbios positive", protocol: netbiosProbe{},
+			server:     readThenWriteServer(72, []byte{0x82, 0, 0, 0}),
+			wantDetail: "positive Session Response",
+		},
+		{
+			name: "msrpc bind nak", protocol: msrpcProbe{},
+			server: readThenWriteServer(72, []byte{
+				0x05, 0x00, 0x0d, 0x03, 0x10, 0x00, 0x00, 0x00,
+				0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+			}),
+			wantDetail: "DCE/RPC Endpoint Mapper bind_nak",
+		},
+		{
+			name: "kerberos as rep", protocol: kerberosProbe{},
+			server:     kerberosServerResponse([]byte{0x6b, 0x03, 0x30, 0x01, 0x00}),
+			wantDetail: "Kerberos AS-REP",
+		},
+		{
+			name: "ldap denied", protocol: ldapProbe{},
+			server:     readThenWriteServer(14, ldapBindResponse(49)),
+			wantDetail: "LDAPv3 BindResponse (result code 49)",
+		},
+		{
+			name: "winrm auth", protocol: winrmProbe{},
+			server: httpStatusServer(http.StatusUnauthorized, "", map[string]string{
+				"WWW-Authenticate": "Negotiate, NTLM",
+			}),
+			wantDetail: "HTTP 401 authentication challenge (Negotiate, NTLM)",
+		},
 	}
 
 	for _, tt := range tests {
@@ -470,6 +625,33 @@ func TestHelpers(t *testing.T) {
 	}
 }
 
+func TestWindowsProtocolHelpers(t *testing.T) {
+	t.Parallel()
+
+	if got := kerberosRealm("dc.example.com"); got != "EXAMPLE.COM" {
+		t.Errorf("kerberosRealm() = %q, want EXAMPLE.COM", got)
+	}
+	if got := kerberosRealm("192.0.2.1"); got != "INVALID" {
+		t.Errorf("kerberosRealm(IP) = %q, want INVALID", got)
+	}
+	if encoded := derInteger(300); len(encoded) < 4 {
+		t.Errorf("derInteger(300) = %x", encoded)
+	}
+	if encoded := derWrap(0x04, make([]byte, 300)); len(encoded) != 304 {
+		t.Errorf("derWrap(300 bytes) length = %d, want 304", len(encoded))
+	}
+
+	tag, value, err := readBERElement(strings.NewReader("\x04\x81\x03abc"), 10)
+	if err != nil || tag != 0x04 || string(value) != "abc" {
+		t.Errorf("readBERElement() = 0x%02x, %q, %v", tag, value, err)
+	}
+	for _, input := range []string{"\x04\x80", "\x04\x02ab"} {
+		if _, _, err := readBERElement(strings.NewReader(input), 1); err == nil {
+			t.Errorf("readBERElement(%q) error = nil", input)
+		}
+	}
+}
+
 func runPipeProbe(t *testing.T, protocol Prober, server func(net.Conn) error) Result {
 	t.Helper()
 	clientConnection, serverConnection := net.Pipe()
@@ -512,16 +694,48 @@ func readThenWriteServer(readBytes int, response []byte) func(net.Conn) error {
 	}
 }
 
+func kerberosServerResponse(response []byte) func(net.Conn) error {
+	return func(connection net.Conn) error {
+		length := make([]byte, 4)
+		if _, err := io.ReadFull(connection, length); err != nil {
+			return err
+		}
+		request := make([]byte, binary.BigEndian.Uint32(length))
+		if _, err := io.ReadFull(connection, request); err != nil {
+			return err
+		}
+		framed := make([]byte, 4+len(response))
+		binary.BigEndian.PutUint32(framed[:4], uint32(len(response)))
+		copy(framed[4:], response)
+		return writeAll(connection, framed)
+	}
+}
+
+func ldapBindResponse(resultCode byte) []byte {
+	return []byte{
+		0x30, 0x0c,
+		0x02, 0x01, 0x01,
+		0x61, 0x07,
+		0x0a, 0x01, resultCode,
+		0x04, 0x00,
+		0x04, 0x00,
+	}
+}
+
 func httpServer(body string, headers map[string]string) func(net.Conn) error {
+	return httpStatusServer(http.StatusOK, body, headers)
+}
+
+func httpStatusServer(status int, body string, headers map[string]string) func(net.Conn) error {
 	return func(connection net.Conn) error {
 		request, err := http.ReadRequest(bufio.NewReader(connection))
 		if err != nil {
 			return err
 		}
-		if request.URL.Path != "/" && request.URL.Path != "/version" {
+		if request.URL.Path != "/" && request.URL.Path != "/version" && request.URL.Path != "/wsman" {
 			return fmt.Errorf("unexpected path %q", request.URL.Path)
 		}
-		if _, err := fmt.Fprint(connection, "HTTP/1.1 200 OK\r\n"); err != nil {
+		if _, err := fmt.Fprintf(connection, "HTTP/1.1 %d %s\r\n", status, http.StatusText(status)); err != nil {
 			return err
 		}
 		for name, value := range headers {

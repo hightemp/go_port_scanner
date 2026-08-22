@@ -33,7 +33,7 @@ proxy:
 probes:
   enabled: false
   timeout: 2s
-  # Applies only to FTPS certificates. Keep false in production.
+  # Applies to FTPS, LDAPS, and WinRM HTTPS certificates. Keep false in production.
   tls_insecure_skip_verify: false
 
   ssh:
@@ -95,3 +95,33 @@ probes:
     enabled: true
     # Probe ports accept the same ranges as the main ports list.
     ports: [2379]
+
+  # Windows and Active Directory services.
+  rdp:
+    enabled: true
+    ports: [3389]
+  smb:
+    enabled: true
+    ports: [445]
+  netbios:
+    enabled: true
+    ports: [139]
+  msrpc:
+    enabled: true
+    ports: [135]
+  kerberos:
+    enabled: true
+    ports: [88]
+  # Includes the Active Directory Global Catalog ports.
+  ldap:
+    enabled: true
+    ports: [389, 3268]
+  ldaps:
+    enabled: true
+    ports: [636, 3269]
+  winrm:
+    enabled: true
+    ports: [5985]
+  winrm_https:
+    enabled: true
+    ports: [5986]

@@ -160,6 +160,24 @@ func newProtocol(name string, tlsInsecureSkipVerify bool) (Prober, error) {
 		return memcachedProbe{}, nil
 	case "etcd":
 		return etcdProbe{}, nil
+	case "rdp":
+		return rdpProbe{}, nil
+	case "smb":
+		return smbProbe{}, nil
+	case "netbios":
+		return netbiosProbe{}, nil
+	case "msrpc":
+		return msrpcProbe{}, nil
+	case "kerberos":
+		return kerberosProbe{}, nil
+	case "ldap":
+		return ldapProbe{}, nil
+	case "ldaps":
+		return ldapsProbe{tlsInsecureSkipVerify: tlsInsecureSkipVerify}, nil
+	case "winrm":
+		return winrmProbe{}, nil
+	case "winrm_https":
+		return winrmHTTPSProbe{tlsInsecureSkipVerify: tlsInsecureSkipVerify}, nil
 	default:
 		return nil, fmt.Errorf("unsupported probe %q", name)
 	}

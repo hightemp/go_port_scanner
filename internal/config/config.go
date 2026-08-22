@@ -154,6 +154,15 @@ type Probes struct {
 	Redis                 ProtocolProbe `yaml:"redis"`
 	Memcached             ProtocolProbe `yaml:"memcached"`
 	Etcd                  ProtocolProbe `yaml:"etcd"`
+	RDP                   ProtocolProbe `yaml:"rdp"`
+	SMB                   ProtocolProbe `yaml:"smb"`
+	NetBIOS               ProtocolProbe `yaml:"netbios"`
+	MSRPC                 ProtocolProbe `yaml:"msrpc"`
+	Kerberos              ProtocolProbe `yaml:"kerberos"`
+	LDAP                  ProtocolProbe `yaml:"ldap"`
+	LDAPS                 ProtocolProbe `yaml:"ldaps"`
+	WinRM                 ProtocolProbe `yaml:"winrm"`
+	WinRMHTTPS            ProtocolProbe `yaml:"winrm_https"`
 }
 
 // ProbeDefinition describes one enabled protocol and its expanded ports.
@@ -322,6 +331,15 @@ func defaultProbes() Probes {
 		Redis:         protocol(single(6379)),
 		Memcached:     protocol(single(11211)),
 		Etcd:          protocol(single(2379)),
+		RDP:           protocol(single(3389)),
+		SMB:           protocol(single(445)),
+		NetBIOS:       protocol(single(139)),
+		MSRPC:         protocol(single(135)),
+		Kerberos:      protocol(single(88)),
+		LDAP:          protocol(single(389), single(3268)),
+		LDAPS:         protocol(single(636), single(3269)),
+		WinRM:         protocol(single(5985)),
+		WinRMHTTPS:    protocol(single(5986)),
 	}
 }
 
@@ -344,6 +362,15 @@ func (c Config) probeProtocols() map[string]ProtocolProbe {
 		"redis":         c.Probes.Redis,
 		"memcached":     c.Probes.Memcached,
 		"etcd":          c.Probes.Etcd,
+		"rdp":           c.Probes.RDP,
+		"smb":           c.Probes.SMB,
+		"netbios":       c.Probes.NetBIOS,
+		"msrpc":         c.Probes.MSRPC,
+		"kerberos":      c.Probes.Kerberos,
+		"ldap":          c.Probes.LDAP,
+		"ldaps":         c.Probes.LDAPS,
+		"winrm":         c.Probes.WinRM,
+		"winrm_https":   c.Probes.WinRMHTTPS,
 	}
 }
 
@@ -409,6 +436,15 @@ func (c Config) EnabledProbeDefinitions() []ProbeDefinition {
 		{name: "redis", protocol: c.Probes.Redis},
 		{name: "memcached", protocol: c.Probes.Memcached},
 		{name: "etcd", protocol: c.Probes.Etcd},
+		{name: "rdp", protocol: c.Probes.RDP},
+		{name: "smb", protocol: c.Probes.SMB},
+		{name: "netbios", protocol: c.Probes.NetBIOS},
+		{name: "msrpc", protocol: c.Probes.MSRPC},
+		{name: "kerberos", protocol: c.Probes.Kerberos},
+		{name: "ldap", protocol: c.Probes.LDAP},
+		{name: "ldaps", protocol: c.Probes.LDAPS},
+		{name: "winrm", protocol: c.Probes.WinRM},
+		{name: "winrm_https", protocol: c.Probes.WinRMHTTPS},
 	}
 
 	definitions := make([]ProbeDefinition, 0, len(configured))

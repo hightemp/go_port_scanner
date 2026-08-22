@@ -100,11 +100,19 @@ checks are:
   Elasticsearch.
 - RabbitMQ/AMQP 0-9-1, Kafka, NATS, and MQTT.
 - Redis, Memcached, and etcd.
+- Windows/Active Directory: RDP (3389), SMB (445), NetBIOS Session (139),
+  MSRPC Endpoint Mapper (135), Kerberos (88), LDAP/Global Catalog
+  (389/3268), LDAPS/secure Global Catalog (636/3269), and WinRM over HTTP or
+  HTTPS (5985/5986).
 
 When several enabled checks use the same port, each check opens its own
 connection. Consequently, a proxy is selected again for every protocol
 handshake. A failed handshake does not hide the successful TCP result: output
 shows the port as open and reports each protocol result separately.
+
+Windows dynamic RPC ports (`49152-65535`) remain regular TCP scan targets and
+are not assigned the Endpoint Mapper handshake automatically, because services
+on those ports expose different RPC interfaces.
 
 ## Release
 

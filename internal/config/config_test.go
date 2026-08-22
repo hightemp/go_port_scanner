@@ -76,7 +76,7 @@ probes:
 		t.Errorf("Probes = %#v, want enabled probes with FTP disabled", got.Probes)
 	}
 	definitions := got.EnabledProbeDefinitions()
-	if len(definitions) != 16 || definitions[0].Name != "ssh" ||
+	if len(definitions) != 25 || definitions[0].Name != "ssh" ||
 		!reflect.DeepEqual(definitions[0].Ports, []int{22, 2200, 2201}) {
 		t.Errorf("EnabledProbeDefinitions() = %#v", definitions)
 	}
@@ -201,5 +201,9 @@ func TestExampleConfiguration(t *testing.T) {
 	}
 	if !configuration.Probes.SSH.Enabled || !configuration.Probes.FTPSExplicit.Enabled {
 		t.Errorf("example protocol switches = %#v, want SSH and FTPS explicit enabled", configuration.Probes)
+	}
+	if !reflect.DeepEqual(expandPortRanges(configuration.Probes.LDAP.Ports), []int{389, 3268}) ||
+		!reflect.DeepEqual(expandPortRanges(configuration.Probes.WinRMHTTPS.Ports), []int{5986}) {
+		t.Errorf("example Windows probe ports = %#v", configuration.Probes)
 	}
 }
