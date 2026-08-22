@@ -18,6 +18,8 @@ import (
 
 	"github.com/hightemp/go_port_scanner/internal/cli"
 	appconfig "github.com/hightemp/go_port_scanner/internal/config"
+	"github.com/hightemp/go_port_scanner/internal/probe"
+	"github.com/hightemp/go_port_scanner/internal/scanner"
 )
 
 func TestRunFindsOpenPort(t *testing.T) {
@@ -99,6 +101,99 @@ proxy:
 	if !strings.Contains(stdout.String(), "Proxy pool enabled with 1 proxies (round_robin)") ||
 		!strings.Contains(stdout.String(), "TCP: 443") {
 		t.Errorf("run() output = %q, want proxy pool and open port messages", stdout.String())
+	}
+}
+
+func TestRunReportsSSHHandshake(t *testing.T) {
+	t.Parallel()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen() error = %v", err)
+	}
+	defer listener.Close()
+
+	serverErrors := make(chan error, 1)
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			serverErrors <- acceptErr
+			return
+		}
+		defer connection.Close()
+		_, writeErr := connection.Write([]byte("SSH-2.0-probe-test\r\n"))
+		serverErrors <- writeErr
+	}()
+
+	_, port, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatalf("net.SplitHostPort() error = %v", err)
+	}
+	configPath := t.TempDir() + "/config.yaml"
+	yamlConfig := fmt.Sprintf(`
+targets: [127.0.0.1]
+ports: [%s]
+scanner:
+  workers: 1
+  dial_timeout: 1s
+  verbosity: quiet
+probes:
+  enabled: true
+  timeout: 1s
+  ssh:
+    enabled: true
+    ports: [%s]
+`, port, port)
+	if err := os.WriteFile(configPath, []byte(yamlConfig), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := run(context.Background(), []string{"-config", configPath}, &stdout, &bytes.Buffer{}); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	if err := <-serverErrors; err != nil {
+		t.Errorf("SSH mock server error = %v", err)
+	}
+	if !strings.Contains(stdout.String(), "[ssh: SSH-2.0-probe-test]") {
+		t.Errorf("run() output = %q, want SSH handshake", stdout.String())
+	}
+}
+
+func TestProbeRegistryAndOutputFormatting(t *testing.T) {
+	t.Parallel()
+
+	configuration := appconfig.Default()
+	registry, err := newProbeRegistry(configuration)
+	if err != nil || registry != nil {
+		t.Fatalf("newProbeRegistry(disabled) = %#v, %v; want nil, nil", registry, err)
+	}
+	configuration.Probes.Enabled = true
+	registry, err = newProbeRegistry(configuration)
+	if err != nil {
+		t.Fatalf("newProbeRegistry() error = %v", err)
+	}
+	if registry.Count() != 17 {
+		t.Errorf("Registry.Count() = %d, want 17", registry.Count())
+	}
+
+	event := scanner.Event{
+		Host: "2001:db8::1",
+		Port: 22,
+		Probes: []probe.Result{
+			{Protocol: "ssh", Detail: "OpenSSH"},
+			{Protocol: "ftp", Err: errors.New("unexpected greeting")},
+			{Protocol: "custom"},
+		},
+	}
+	got := formatOpenEvent(event, true)
+	for _, want := range []string{"TCP: [2001:db8::1]:22", "ssh: OpenSSH", "ftp: failed", "custom: ok"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("formatOpenEvent() = %q, want %q", got, want)
+		}
+	}
+	if got := formatOpenEvent(scanner.Event{Port: 80}, false); got != "TCP: 80" {
+		t.Errorf("formatOpenEvent() = %q, want TCP: 80", got)
 	}
 }
 

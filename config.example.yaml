@@ -27,3 +27,71 @@ proxy:
   #   - http://127.0.0.1:8080
   #   - https://proxy.example.com:8443
   #   - socks5://127.0.0.1:1080
+
+# Application handshakes run only after a successful TCP connection. The
+# global switch and every protocol switch can be disabled independently.
+probes:
+  enabled: false
+  timeout: 2s
+  # Applies only to FTPS certificates. Keep false in production.
+  tls_insecure_skip_verify: false
+
+  ssh:
+    enabled: true
+    ports: [22]
+
+  # Plain FTP, explicit FTPS (AUTH TLS), and implicit FTPS are independent.
+  # FTP and explicit FTPS intentionally share port 21 and use separate
+  # connections when both are enabled.
+  ftp:
+    enabled: true
+    ports: [21]
+  ftps_explicit:
+    enabled: true
+    ports: [21]
+  ftps_implicit:
+    enabled: true
+    ports: [990]
+
+  postgresql:
+    enabled: true
+    ports: [5432]
+  mysql:
+    enabled: true
+    ports: [3306]
+  mongodb:
+    enabled: true
+    ports: [27017]
+  mssql:
+    enabled: true
+    ports: [1433]
+  cassandra:
+    enabled: true
+    ports: [9042]
+  elasticsearch:
+    enabled: true
+    ports: [9200]
+
+  rabbitmq:
+    enabled: true
+    ports: [5672]
+  kafka:
+    enabled: true
+    ports: [9092]
+  nats:
+    enabled: true
+    ports: [4222]
+  mqtt:
+    enabled: true
+    ports: [1883]
+
+  redis:
+    enabled: true
+    ports: [6379]
+  memcached:
+    enabled: true
+    ports: [11211]
+  etcd:
+    enabled: true
+    # Probe ports accept the same ranges as the main ports list.
+    ports: [2379]

@@ -31,6 +31,15 @@ proxy:
   urls:
     - http://proxy.example.com:8080
     - socks5://127.0.0.1:1080
+probes:
+  enabled: true
+  timeout: 900ms
+  tls_insecure_skip_verify: true
+  ssh:
+    enabled: true
+    ports: [22, 2200-2201]
+  ftp:
+    enabled: false
 `
 
 	got, err := Decode(strings.NewReader(yamlConfig))
@@ -61,6 +70,15 @@ proxy:
 	if !got.Proxy.Enabled || got.Proxy.Strategy != ProxyStrategyRandom ||
 		!got.Proxy.TLSInsecureSkipVerify || len(got.Proxy.URLs) != 2 {
 		t.Errorf("Proxy = %#v, want enabled random pool with two URLs", got.Proxy)
+	}
+	if !got.Probes.Enabled || got.Probes.Timeout.Duration != 900*time.Millisecond ||
+		!got.Probes.TLSInsecureSkipVerify || got.Probes.FTP.Enabled {
+		t.Errorf("Probes = %#v, want enabled probes with FTP disabled", got.Probes)
+	}
+	definitions := got.EnabledProbeDefinitions()
+	if len(definitions) != 16 || definitions[0].Name != "ssh" ||
+		!reflect.DeepEqual(definitions[0].Ports, []int{22, 2200, 2201}) {
+		t.Errorf("EnabledProbeDefinitions() = %#v", definitions)
 	}
 }
 
@@ -101,6 +119,9 @@ func TestDecodeValidation(t *testing.T) {
 		{name: "enabled proxy without URLs", yaml: "proxy: {enabled: true}\n"},
 		{name: "empty proxy URL", yaml: "proxy: {urls: ['']}\n"},
 		{name: "unknown proxy strategy", yaml: "proxy: {strategy: first}\n"},
+		{name: "zero probe timeout", yaml: "probes: {timeout: 0s}\n"},
+		{name: "enabled probe without ports", yaml: "probes: {ssh: {ports: []}}\n"},
+		{name: "invalid probe port", yaml: "probes: {ssh: {ports: [65536]}}\n"},
 		{name: "multiple documents", yaml: "---\nscanner: {workers: 1}\n---\nscanner: {workers: 2}\n"},
 	}
 
@@ -112,6 +133,15 @@ func TestDecodeValidation(t *testing.T) {
 				t.Fatal("Decode() error = nil, want validation error")
 			}
 		})
+	}
+}
+
+func TestEnabledProbeDefinitionsDisabled(t *testing.T) {
+	t.Parallel()
+
+	configuration := Default()
+	if got := configuration.EnabledProbeDefinitions(); got != nil {
+		t.Errorf("EnabledProbeDefinitions() = %v, want nil", got)
 	}
 }
 
@@ -156,5 +186,20 @@ func TestLoad(t *testing.T) {
 	}
 	if ports := got.ExpandedPorts(); !reflect.DeepEqual(ports, []int{443}) {
 		t.Errorf("ExpandedPorts() = %v, want [443]", ports)
+	}
+}
+
+func TestExampleConfiguration(t *testing.T) {
+	t.Parallel()
+
+	configuration, err := Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("Load(config.example.yaml) error = %v", err)
+	}
+	if configuration.Probes.Enabled {
+		t.Fatal("example protocol probes are enabled, want safe disabled default")
+	}
+	if !configuration.Probes.SSH.Enabled || !configuration.Probes.FTPSExplicit.Enabled {
+		t.Errorf("example protocol switches = %#v, want SSH and FTPS explicit enabled", configuration.Probes)
 	}
 }

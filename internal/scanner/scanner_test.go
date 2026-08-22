@@ -5,8 +5,11 @@ import (
 	"errors"
 	"net"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/hightemp/go_port_scanner/internal/probe"
 )
 
 func TestNewValidation(t *testing.T) {
@@ -141,8 +144,163 @@ func TestScanUsesConfiguredDialer(t *testing.T) {
 	}
 }
 
+func TestScanRunsEveryProbeWithANewConnection(t *testing.T) {
+	t.Parallel()
+
+	registry, err := probe.NewRegistry(probe.Config{
+		Timeout: time.Second,
+		Definitions: []probe.Definition{
+			{Name: "ssh", Ports: []int{1234}},
+			{Name: "ftp", Ports: []int{1234}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("probe.NewRegistry() error = %v", err)
+	}
+	dialer := &sequenceDialer{responses: []string{
+		"SSH-2.0-test\r\n",
+		"220 FTP ready\r\n",
+	}}
+	portScanner, err := New(Config{
+		Targets:     []string{"example.com"},
+		Ports:       []int{1234},
+		Workers:     1,
+		DialTimeout: time.Second,
+		Dialer:      dialer,
+		Probes:      registry,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	var open Event
+	for event := range portScanner.Scan(context.Background()) {
+		if event.Kind == EventOpen {
+			open = event
+		}
+	}
+	if dialer.Calls() != 2 {
+		t.Errorf("DialContext() calls = %d, want 2", dialer.Calls())
+	}
+	if len(open.Probes) != 2 || open.Probes[0].Protocol != "ssh" || open.Probes[0].Err != nil ||
+		open.Probes[1].Protocol != "ftp" || open.Probes[1].Err != nil {
+		t.Errorf("Event.Probes = %#v, want successful SSH and FTP probes", open.Probes)
+	}
+}
+
+func TestScanReportsClosedPortAndAdditionalProbeDialFailure(t *testing.T) {
+	t.Parallel()
+
+	closedScanner, err := New(Config{
+		Targets:     []string{"example.com"},
+		Ports:       []int{443},
+		Workers:     1,
+		DialTimeout: time.Second,
+		Dialer:      errorDialer{},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	var closed Event
+	for event := range closedScanner.Scan(context.Background()) {
+		if event.Kind == EventClosed {
+			closed = event
+		}
+	}
+	if closed.Err == nil || closed.Host != "example.com" || closed.Port != 443 {
+		t.Errorf("closed event = %#v", closed)
+	}
+
+	registry, err := probe.NewRegistry(probe.Config{
+		Timeout: time.Second,
+		Definitions: []probe.Definition{
+			{Name: "ssh", Ports: []int{1234}},
+			{Name: "ftp", Ports: []int{1234}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("probe.NewRegistry() error = %v", err)
+	}
+	dialer := &firstOnlyDialer{}
+	probeScanner, err := New(Config{
+		Targets:     []string{"example.com"},
+		Ports:       []int{1234},
+		Workers:     1,
+		DialTimeout: time.Second,
+		Dialer:      dialer,
+		Probes:      registry,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	var open Event
+	for event := range probeScanner.Scan(context.Background()) {
+		if event.Kind == EventOpen {
+			open = event
+		}
+	}
+	if len(open.Probes) != 2 || open.Probes[0].Err != nil || open.Probes[1].Err == nil {
+		t.Errorf("probe event = %#v, want first success and second dial failure", open)
+	}
+}
+
 type recordingDialer struct {
 	addresses chan string
+}
+
+type errorDialer struct{}
+
+func (errorDialer) DialContext(context.Context, string, string) (net.Conn, error) {
+	return nil, errors.New("connection refused")
+}
+
+type sequenceDialer struct {
+	mu        sync.Mutex
+	responses []string
+	calls     int
+}
+
+func (d *sequenceDialer) DialContext(context.Context, string, string) (net.Conn, error) {
+	d.mu.Lock()
+	index := d.calls
+	d.calls++
+	d.mu.Unlock()
+	if index >= len(d.responses) {
+		return nil, errors.New("no mock response")
+	}
+	client, server := net.Pipe()
+	go func(response string) {
+		defer server.Close()
+		_, _ = server.Write([]byte(response))
+	}(d.responses[index])
+	return client, nil
+}
+
+func (d *sequenceDialer) Calls() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.calls
+}
+
+type firstOnlyDialer struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (d *firstOnlyDialer) DialContext(context.Context, string, string) (net.Conn, error) {
+	d.mu.Lock()
+	d.calls++
+	call := d.calls
+	d.mu.Unlock()
+	if call > 1 {
+		return nil, errors.New("proxy unavailable")
+	}
+	client, server := net.Pipe()
+	go func() {
+		defer server.Close()
+		_, _ = server.Write([]byte("SSH-2.0-test\r\n"))
+	}()
+	return client, nil
 }
 
 func (d *recordingDialer) DialContext(_ context.Context, _, address string) (net.Conn, error) {

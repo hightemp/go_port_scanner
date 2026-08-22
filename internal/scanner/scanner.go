@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/hightemp/go_port_scanner/internal/probe"
 )
 
 const maxPort = 65535
@@ -41,6 +43,7 @@ type Event struct {
 	Host     string
 	Port     int
 	Duration time.Duration
+	Probes   []probe.Result
 	Err      error
 }
 
@@ -51,6 +54,7 @@ type Config struct {
 	Workers     int
 	DialTimeout time.Duration
 	Dialer      Dialer
+	Probes      *probe.Registry
 }
 
 // Scanner checks a configured TCP port range concurrently.
@@ -188,14 +192,71 @@ func (s *Scanner) worker(ctx context.Context, targets <-chan target, events chan
 				Port:     current.port,
 				Duration: time.Since(startedAt),
 			}
-			if err := connection.Close(); err != nil {
-				event.Err = fmt.Errorf("close connection: %w", err)
+			protocols := s.config.Probes.ForPort(current.port)
+			if len(protocols) == 0 {
+				if err := connection.Close(); err != nil {
+					event.Err = fmt.Errorf("close connection: %w", err)
+				}
+			} else {
+				event.Probes, event.Err = s.runProbes(
+					ctx,
+					dialer,
+					address,
+					current,
+					connection,
+					protocols,
+				)
+				if ctx.Err() != nil {
+					return
+				}
 			}
 			if !emit(ctx, events, event) {
 				return
 			}
 		}
 	}
+}
+
+func (s *Scanner) runProbes(
+	ctx context.Context,
+	dialer Dialer,
+	address string,
+	target target,
+	firstConnection net.Conn,
+	protocols []probe.Prober,
+) ([]probe.Result, error) {
+	results := make([]probe.Result, 0, len(protocols))
+	var closeErrors error
+
+	for index, protocol := range protocols {
+		connection := firstConnection
+		if index > 0 {
+			startedAt := time.Now()
+			var err error
+			connection, err = dialer.DialContext(ctx, "tcp", address)
+			if err != nil {
+				if ctx.Err() != nil {
+					return results, closeErrors
+				}
+				results = append(results, probe.Result{
+					Protocol: protocol.Name(),
+					Duration: time.Since(startedAt),
+					Err:      fmt.Errorf("connect for protocol probe: %w", err),
+				})
+				continue
+			}
+		}
+
+		result := s.config.Probes.Run(ctx, protocol, connection, probe.Target{
+			Host: target.host,
+			Port: target.port,
+		})
+		results = append(results, result)
+		if err := connection.Close(); err != nil {
+			closeErrors = errors.Join(closeErrors, fmt.Errorf("close %s probe connection: %w", protocol.Name(), err))
+		}
+	}
+	return results, closeErrors
 }
 
 func emit(ctx context.Context, events chan<- Event, event Event) bool {

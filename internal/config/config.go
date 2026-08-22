@@ -126,12 +126,49 @@ type Proxy struct {
 	URLs                  []string      `yaml:"urls"`
 }
 
+// ProtocolProbe contains settings shared by every protocol handshake.
+type ProtocolProbe struct {
+	Enabled bool        `yaml:"enabled"`
+	Ports   []PortRange `yaml:"ports"`
+}
+
+// Probes contains optional application-protocol handshake settings.
+type Probes struct {
+	Enabled               bool          `yaml:"enabled"`
+	Timeout               Duration      `yaml:"timeout"`
+	TLSInsecureSkipVerify bool          `yaml:"tls_insecure_skip_verify"`
+	SSH                   ProtocolProbe `yaml:"ssh"`
+	FTP                   ProtocolProbe `yaml:"ftp"`
+	FTPSExplicit          ProtocolProbe `yaml:"ftps_explicit"`
+	FTPSImplicit          ProtocolProbe `yaml:"ftps_implicit"`
+	PostgreSQL            ProtocolProbe `yaml:"postgresql"`
+	MySQL                 ProtocolProbe `yaml:"mysql"`
+	MongoDB               ProtocolProbe `yaml:"mongodb"`
+	MSSQL                 ProtocolProbe `yaml:"mssql"`
+	Cassandra             ProtocolProbe `yaml:"cassandra"`
+	Elasticsearch         ProtocolProbe `yaml:"elasticsearch"`
+	RabbitMQ              ProtocolProbe `yaml:"rabbitmq"`
+	Kafka                 ProtocolProbe `yaml:"kafka"`
+	NATS                  ProtocolProbe `yaml:"nats"`
+	MQTT                  ProtocolProbe `yaml:"mqtt"`
+	Redis                 ProtocolProbe `yaml:"redis"`
+	Memcached             ProtocolProbe `yaml:"memcached"`
+	Etcd                  ProtocolProbe `yaml:"etcd"`
+}
+
+// ProbeDefinition describes one enabled protocol and its expanded ports.
+type ProbeDefinition struct {
+	Name  string
+	Ports []int
+}
+
 // Config contains the complete scanner configuration.
 type Config struct {
 	Targets []string    `yaml:"targets"`
 	Ports   []PortRange `yaml:"ports"`
 	Scanner Scanner     `yaml:"scanner"`
 	Proxy   Proxy       `yaml:"proxy"`
+	Probes  Probes      `yaml:"probes"`
 }
 
 // Default returns the built-in scanner configuration.
@@ -150,6 +187,7 @@ func Default() Config {
 			Strategy: ProxyStrategyRoundRobin,
 			URLs:     []string{},
 		},
+		Probes: defaultProbes(),
 	}
 }
 
@@ -221,6 +259,22 @@ func (c Config) Validate() error {
 	if c.Scanner.ScanTimeout.Duration < 0 {
 		return errors.New("scanner.scan_timeout must not be negative")
 	}
+	if c.Probes.Timeout.Duration <= 0 {
+		return errors.New("probes.timeout must be greater than zero")
+	}
+	for name, protocol := range c.probeProtocols() {
+		if !protocol.Enabled {
+			continue
+		}
+		if len(protocol.Ports) == 0 {
+			return fmt.Errorf("probes.%s.ports must not be empty when the probe is enabled", name)
+		}
+		for index, portRange := range protocol.Ports {
+			if portRange.Start < 1 || portRange.End > maxPort || portRange.Start > portRange.End {
+				return fmt.Errorf("probes.%s.ports[%d] must be between 1 and %d", name, index, maxPort)
+			}
+		}
+	}
 	if c.Proxy.Enabled && len(c.Proxy.URLs) == 0 {
 		return errors.New("proxy.urls must not be empty when proxy is enabled")
 	}
@@ -239,6 +293,57 @@ func (c Config) Validate() error {
 		return nil
 	default:
 		return fmt.Errorf("unsupported scanner.verbosity %q", c.Scanner.Verbosity)
+	}
+}
+
+func defaultProbes() Probes {
+	protocol := func(ports ...PortRange) ProtocolProbe {
+		return ProtocolProbe{Enabled: true, Ports: ports}
+	}
+	single := func(port int) PortRange { return PortRange{Start: port, End: port} }
+
+	return Probes{
+		Enabled:       false,
+		Timeout:       Duration{Duration: 2 * time.Second},
+		SSH:           protocol(single(22)),
+		FTP:           protocol(single(21)),
+		FTPSExplicit:  protocol(single(21)),
+		FTPSImplicit:  protocol(single(990)),
+		PostgreSQL:    protocol(single(5432)),
+		MySQL:         protocol(single(3306)),
+		MongoDB:       protocol(single(27017)),
+		MSSQL:         protocol(single(1433)),
+		Cassandra:     protocol(single(9042)),
+		Elasticsearch: protocol(single(9200)),
+		RabbitMQ:      protocol(single(5672)),
+		Kafka:         protocol(single(9092)),
+		NATS:          protocol(single(4222)),
+		MQTT:          protocol(single(1883)),
+		Redis:         protocol(single(6379)),
+		Memcached:     protocol(single(11211)),
+		Etcd:          protocol(single(2379)),
+	}
+}
+
+func (c Config) probeProtocols() map[string]ProtocolProbe {
+	return map[string]ProtocolProbe{
+		"ssh":           c.Probes.SSH,
+		"ftp":           c.Probes.FTP,
+		"ftps_explicit": c.Probes.FTPSExplicit,
+		"ftps_implicit": c.Probes.FTPSImplicit,
+		"postgresql":    c.Probes.PostgreSQL,
+		"mysql":         c.Probes.MySQL,
+		"mongodb":       c.Probes.MongoDB,
+		"mssql":         c.Probes.MSSQL,
+		"cassandra":     c.Probes.Cassandra,
+		"elasticsearch": c.Probes.Elasticsearch,
+		"rabbitmq":      c.Probes.RabbitMQ,
+		"kafka":         c.Probes.Kafka,
+		"nats":          c.Probes.NATS,
+		"mqtt":          c.Probes.MQTT,
+		"redis":         c.Probes.Redis,
+		"memcached":     c.Probes.Memcached,
+		"etcd":          c.Probes.Etcd,
 	}
 }
 
@@ -277,6 +382,48 @@ func (c Config) VerbosityLevel() int {
 	}
 }
 
+// EnabledProbeDefinitions returns enabled protocol handshakes in stable order.
+func (c Config) EnabledProbeDefinitions() []ProbeDefinition {
+	if !c.Probes.Enabled {
+		return nil
+	}
+
+	configured := []struct {
+		name     string
+		protocol ProtocolProbe
+	}{
+		{name: "ssh", protocol: c.Probes.SSH},
+		{name: "ftp", protocol: c.Probes.FTP},
+		{name: "ftps_explicit", protocol: c.Probes.FTPSExplicit},
+		{name: "ftps_implicit", protocol: c.Probes.FTPSImplicit},
+		{name: "postgresql", protocol: c.Probes.PostgreSQL},
+		{name: "mysql", protocol: c.Probes.MySQL},
+		{name: "mongodb", protocol: c.Probes.MongoDB},
+		{name: "mssql", protocol: c.Probes.MSSQL},
+		{name: "cassandra", protocol: c.Probes.Cassandra},
+		{name: "elasticsearch", protocol: c.Probes.Elasticsearch},
+		{name: "rabbitmq", protocol: c.Probes.RabbitMQ},
+		{name: "kafka", protocol: c.Probes.Kafka},
+		{name: "nats", protocol: c.Probes.NATS},
+		{name: "mqtt", protocol: c.Probes.MQTT},
+		{name: "redis", protocol: c.Probes.Redis},
+		{name: "memcached", protocol: c.Probes.Memcached},
+		{name: "etcd", protocol: c.Probes.Etcd},
+	}
+
+	definitions := make([]ProbeDefinition, 0, len(configured))
+	for _, item := range configured {
+		if !item.protocol.Enabled {
+			continue
+		}
+		definitions = append(definitions, ProbeDefinition{
+			Name:  item.name,
+			Ports: expandPortRanges(item.protocol.Ports),
+		})
+	}
+	return definitions
+}
+
 func parsePort(value string) (int, error) {
 	port, err := strconv.Atoi(strings.TrimSpace(value))
 	if err != nil {
@@ -286,4 +433,19 @@ func parsePort(value string) (int, error) {
 		return 0, fmt.Errorf("port must be between 1 and %d", maxPort)
 	}
 	return port, nil
+}
+
+func expandPortRanges(ranges []PortRange) []int {
+	ports := make([]int, 0)
+	seen := make(map[int]struct{})
+	for _, portRange := range ranges {
+		for port := portRange.Start; port <= portRange.End; port++ {
+			if _, exists := seen[port]; exists {
+				continue
+			}
+			seen[port] = struct{}{}
+			ports = append(ports, port)
+		}
+	}
+	return ports
 }

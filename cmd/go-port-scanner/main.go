@@ -6,10 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -68,12 +66,21 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		logger.Infof("Proxy pool enabled with %d proxies (%s)\n", proxyPool.Len(), proxyPool.Strategy())
 	}
 
+	probeRegistry, err := newProbeRegistry(configuration)
+	if err != nil {
+		return fmt.Errorf("configure protocol probes: %w", err)
+	}
+	if probeRegistry != nil {
+		logger.Infof("Protocol probes enabled with %d protocol/port mapping(s)\n", probeRegistry.Count())
+	}
+
 	portScanner, err := scanner.New(scanner.Config{
 		Targets:     configuration.Targets,
 		Ports:       ports,
 		Workers:     configuration.Scanner.Workers,
 		DialTimeout: configuration.Scanner.DialTimeout.Duration,
 		Dialer:      scanDialer,
+		Probes:      probeRegistry,
 	})
 	if err != nil {
 		return fmt.Errorf("configure scanner: %w", err)
@@ -99,17 +106,34 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		case scanner.EventChecking:
 			logger.Tracef("Checking %s port %d...\n", event.Host, event.Port)
 		case scanner.EventOpen:
-			if len(configuration.Targets) == 1 {
-				logger.Printf("TCP: %d\n", event.Port)
-			} else {
-				logger.Printf("TCP: %s\n", net.JoinHostPort(event.Host, strconv.Itoa(event.Port)))
-			}
+			logger.Printf("%s\n", formatOpenEvent(event, len(configuration.Targets) > 1))
 			logger.Debugf(
 				"Connection established to %s port %d in %v\n",
 				event.Host,
 				event.Port,
 				event.Duration,
 			)
+			for _, result := range event.Probes {
+				if result.Err != nil {
+					logger.Debugf(
+						"%s handshake with %s port %d failed in %v: %v\n",
+						result.Protocol,
+						event.Host,
+						event.Port,
+						result.Duration,
+						result.Err,
+					)
+					continue
+				}
+				logger.Debugf(
+					"%s handshake with %s port %d succeeded in %v: %s\n",
+					result.Protocol,
+					event.Host,
+					event.Port,
+					result.Duration,
+					result.Detail,
+				)
+			}
 			if event.Err != nil {
 				logger.Debugf("Could not close connection to %s port %d: %v\n", event.Host, event.Port, event.Err)
 			}

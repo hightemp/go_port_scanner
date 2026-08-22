@@ -68,6 +68,44 @@ can be supplied in the URL. HTTP and HTTPS proxies use the CONNECT method. Set
 `tls_insecure_skip_verify: true` only for an HTTPS proxy whose certificate you
 have explicitly chosen not to verify.
 
+### Protocol handshakes
+
+Protocol checks are disabled by default. They run after TCP connect, use the
+same direct or proxy dialer, and have both a global switch and a switch for
+every protocol:
+
+```yaml
+probes:
+  enabled: true
+  timeout: 2s
+  tls_insecure_skip_verify: false
+
+  ssh:
+    enabled: true
+    ports: [22, 2200-2210]
+  postgresql:
+    enabled: true
+    ports: [5432]
+  redis:
+    enabled: false
+    ports: [6379]
+```
+
+The full list and default ports are in `config.example.yaml`. Implemented
+checks are:
+
+- SSH.
+- FTP, explicit FTPS (`AUTH TLS`), and implicit FTPS.
+- PostgreSQL, MySQL/MariaDB, MongoDB, Microsoft SQL Server, Cassandra, and
+  Elasticsearch.
+- RabbitMQ/AMQP 0-9-1, Kafka, NATS, and MQTT.
+- Redis, Memcached, and etcd.
+
+When several enabled checks use the same port, each check opens its own
+connection. Consequently, a proxy is selected again for every protocol
+handshake. A failed handshake does not hide the successful TCP result: output
+shows the port as open and reports each protocol result separately.
+
 ## Release
 
 Update `VERSION`, then run:
