@@ -1,5 +1,12 @@
 # go_port_scanner
 
+[![Release](https://github.com/hightemp/go_port_scanner/actions/workflows/release.yml/badge.svg)](https://github.com/hightemp/go_port_scanner/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/hightemp/go_port_scanner?sort=semver)](https://github.com/hightemp/go_port_scanner/releases/latest)
+[![Go version](https://img.shields.io/badge/Go-1.23-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/)
+[![Go Report Card](https://goreportcard.com/badge/github.com/hightemp/go_port_scanner)](https://goreportcard.com/report/github.com/hightemp/go_port_scanner)
+[![Go Reference](https://pkg.go.dev/badge/github.com/hightemp/go_port_scanner.svg)](https://pkg.go.dev/github.com/hightemp/go_port_scanner)
+[![](https://asdertasd.site/counter/go_port_scanner)](https://asdertasd.site/counter/go_port_scanner)
+
 This is a simple TCP port scanner written in Go. 
 
 ```console
