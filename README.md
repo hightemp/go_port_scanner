@@ -6,6 +6,19 @@ This is a simple TCP port scanner written in Go.
 $ make build
 ```
 
+## Release
+
+Update `VERSION`, then run:
+
+```console
+$ make release
+```
+
+The command runs the tests, commits all current changes as `release: v<version>`,
+force-updates the annotated version tag, and force-pushes both the current branch
+and the tag to `origin`. Pushing the tag starts GitHub Actions, which publishes
+Linux, macOS, and Windows binaries with SHA-256 checksums.
+
 ```console
 $ ./go_port_scanner -host 192.168.31.142 -workers 10000 
 TCP: 22

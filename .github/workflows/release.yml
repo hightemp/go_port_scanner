@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify tag matches VERSION
+        shell: bash
+        run: |
+          release_version="$(tr -d '[:space:]' < VERSION)"
+          expected_tag="v${release_version#v}"
+          if [[ "${GITHUB_REF_NAME}" != "${expected_tag}" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match VERSION (${expected_tag})" >&2
+            exit 1
+          fi
+
+      - name: Test
+        run: go test -race ./...
+
+      - name: Build release binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          for target in \
+            linux/amd64 linux/arm64 \
+            darwin/amd64 darwin/arm64 \
+            windows/amd64 windows/arm64
+          do
+            release_os="${target%/*}"
+            release_arch="${target#*/}"
+            release_output="dist/go_port_scanner_${GITHUB_REF_NAME}_${release_os}_${release_arch}"
+            if [[ "${release_os}" == "windows" ]]; then
+              release_output="${release_output}.exe"
+            fi
+
+            CGO_ENABLED=0 GOOS="${release_os}" GOARCH="${release_arch}" \
+              go build -trimpath -ldflags="-s -w" \
+              -o "${release_output}" ./cmd/go-port-scanner
+          done
+
+          (
+            cd dist
+            sha256sum go_port_scanner_* > checksums.txt
+          )
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          dist/*
+          --verify-tag
+          --generate-notes
+          --title "${GITHUB_REF_NAME}"
