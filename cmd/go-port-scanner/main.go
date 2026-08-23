@@ -42,13 +42,17 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if err := validateReportDestination(configuration, options.ConfigPath); err != nil {
+		return fmt.Errorf("validate report: %w", err)
+	}
 	targets, err := configuration.ExpandedTargets()
 	if err != nil {
 		return fmt.Errorf("expand targets: %w", err)
 	}
 	ports := configuration.ExpandedPorts()
 
-	logger := logging.New(stdout, logging.Level(configuration.VerbosityLevel()))
+	requestedTargets := append([]string(nil), targets...)
+	logger := logging.New(reportLogOutput(configuration, stdout, stderr), logging.Level(configuration.VerbosityLevel()))
 	scanContext := ctx
 	if configuration.Scanner.ScanTimeout.Duration > 0 {
 		var cancel context.CancelFunc
@@ -56,6 +60,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		defer cancel()
 	}
 	startedAt := time.Now()
+	var discoveryResults []discovery.Result
 
 	var scanDialer scanner.Dialer
 	if configuration.Proxy.Enabled {
@@ -105,6 +110,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("run host discovery: %w", err)
 		}
+		discoveryResults = results
 
 		reachableTargets, err := filterDiscoveryResults(logger, results)
 		logger.Infof(
@@ -155,6 +161,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 
 	scanStartedAt := time.Now()
 	statistics := newScanStats(portScanner.Checks())
+	openEvents := make([]scanner.Event, 0)
 	var progressTicker *time.Ticker
 	var progress <-chan time.Time
 	if configuration.Scanner.ProgressInterval.Duration > 0 {
@@ -172,23 +179,51 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				continue
 			}
 			statistics.observe(event)
+			if event.Kind == scanner.EventOpen {
+				openEvents = append(openEvents, event)
+			}
 			handleScanEvent(logger, event, len(targets) > 1)
 		case <-progress:
 			statistics.logProgress(logger, time.Since(scanStartedAt))
 		}
 	}
 
-	statistics.logSummary(logger, time.Since(scanStartedAt))
-	if err := scanContext.Err(); err != nil {
-		return fmt.Errorf("scan interrupted: %w", err)
+	finishedAt := time.Now()
+	statistics.logSummary(logger, finishedAt.Sub(scanStartedAt))
+	scanError := scanContext.Err()
+	var resultError error
+	if scanError != nil {
+		resultError = fmt.Errorf("scan interrupted: %w", scanError)
+		logger.Infof("Scan interrupted after %v\n", finishedAt.Sub(startedAt))
+	} else {
+		logger.Debugf("Finished sending ports\n")
+		logger.Infof("Scan completed in %v\n", finishedAt.Sub(startedAt))
 	}
 
-	logger.Debugf("Finished sending ports\n")
-	logger.Infof("Scan completed in %v\n", time.Since(startedAt))
-	if err := logger.Err(); err != nil {
-		return err
+	document := buildReportDocument(
+		startedAt,
+		finishedAt,
+		requestedTargets,
+		targets,
+		len(ports),
+		discoveryResults,
+		openEvents,
+		statistics,
+		scanError,
+	)
+	if err := writeConfiguredReport(configuration, document, stdout, stderr); err != nil {
+		resultError = errors.Join(resultError, err)
+	} else if configuration.Report.Enabled {
+		logger.Infof(
+			"Report written to %s in %s format\n",
+			configuration.Report.Destination,
+			configuration.Report.Format,
+		)
 	}
-	return nil
+	if err := logger.Err(); err != nil {
+		resultError = errors.Join(resultError, err)
+	}
+	return resultError
 }
 
 func handleScanEvent(logger *logging.Logger, event scanner.Event, multipleTargets bool) {

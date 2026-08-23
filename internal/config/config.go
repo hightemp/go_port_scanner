@@ -33,6 +33,9 @@ type ProxyStrategy string
 // DiscoveryStrategy controls how hosts are checked before their ports are scanned.
 type DiscoveryStrategy string
 
+// ReportFormat controls serialization of an optional scan report.
+type ReportFormat string
+
 const (
 	// VerbosityQuiet only prints open ports.
 	VerbosityQuiet Verbosity = "quiet"
@@ -58,6 +61,15 @@ const (
 	DiscoveryStrategyICMP DiscoveryStrategy = "icmp"
 	// DiscoveryStrategyICMPThenTCP tries ICMP first and falls back to TCP.
 	DiscoveryStrategyICMPThenTCP DiscoveryStrategy = "icmp_then_tcp"
+
+	// ReportFormatText writes a human-readable report.
+	ReportFormatText ReportFormat = "text"
+	// ReportFormatJSON writes one structured JSON document.
+	ReportFormatJSON ReportFormat = "json"
+	// ReportFormatJSONL writes one JSON object per line.
+	ReportFormatJSONL ReportFormat = "jsonl"
+	// ReportFormatCSV writes normalized comma-separated records.
+	ReportFormatCSV ReportFormat = "csv"
 )
 
 // PortRange describes an inclusive TCP port range.
@@ -151,6 +163,13 @@ type Proxy struct {
 	URLs                  []string      `yaml:"urls"`
 }
 
+// Report contains optional scan report output settings.
+type Report struct {
+	Enabled     bool         `yaml:"enabled"`
+	Destination string       `yaml:"destination"`
+	Format      ReportFormat `yaml:"format"`
+}
+
 // ProtocolProbe contains settings shared by every protocol handshake.
 type ProtocolProbe struct {
 	Enabled bool        `yaml:"enabled"`
@@ -204,6 +223,7 @@ type Config struct {
 	Discovery Discovery   `yaml:"discovery"`
 	Proxy     Proxy       `yaml:"proxy"`
 	Probes    Probes      `yaml:"probes"`
+	Report    Report      `yaml:"report"`
 }
 
 // Default returns the built-in scanner configuration.
@@ -239,6 +259,11 @@ func Default() Config {
 			URLs:     []string{},
 		},
 		Probes: defaultProbes(),
+		Report: Report{
+			Enabled:     false,
+			Destination: "scan-report.json",
+			Format:      ReportFormatJSON,
+		},
 	}
 }
 
@@ -345,6 +370,14 @@ func (c Config) Validate() error {
 		if strings.TrimSpace(proxyURL) == "" {
 			return fmt.Errorf("proxy.urls[%d] must not be empty", index)
 		}
+	}
+	if c.Report.Enabled && strings.TrimSpace(c.Report.Destination) == "" {
+		return errors.New("report.destination must not be empty when report is enabled")
+	}
+	switch c.Report.Format {
+	case ReportFormatText, ReportFormatJSON, ReportFormatJSONL, ReportFormatCSV:
+	default:
+		return fmt.Errorf("unsupported report.format %q", c.Report.Format)
 	}
 	switch c.Proxy.Strategy {
 	case ProxyStrategyRoundRobin, ProxyStrategyRandom, ProxyStrategyLeastConnections:

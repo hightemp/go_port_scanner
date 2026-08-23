@@ -36,6 +36,14 @@ discovery:
   # connection refusal means that the host is reachable.
   tcp_ports: [22, 80, 443, 445, 3389, 5985]
 
+# Optional final report. Destinations stdout and stderr are reserved; any other
+# value is treated as a file path. Missing parent directories are created.
+report:
+  enabled: false
+  destination: scan-report.json
+  # Available values: text, json, jsonl, csv.
+  format: json
+
 proxy:
   enabled: false
   # Available values: round_robin, random, least_connections.

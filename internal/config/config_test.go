@@ -48,6 +48,10 @@ probes:
     ports: [22, 2200-2201]
   ftp:
     enabled: false
+report:
+  enabled: true
+  destination: reports/scan.jsonl
+  format: jsonl
 `
 
 	got, err := Decode(strings.NewReader(yamlConfig))
@@ -93,6 +97,10 @@ probes:
 	if !got.Probes.Enabled || got.Probes.Timeout.Duration != 900*time.Millisecond ||
 		!got.Probes.TLSInsecureSkipVerify || got.Probes.FTP.Enabled {
 		t.Errorf("Probes = %#v, want enabled probes with FTP disabled", got.Probes)
+	}
+	if !got.Report.Enabled || got.Report.Destination != "reports/scan.jsonl" ||
+		got.Report.Format != ReportFormatJSONL {
+		t.Errorf("Report = %#v, want enabled JSONL report", got.Report)
 	}
 	definitions := got.EnabledProbeDefinitions()
 	if len(definitions) != 25 || definitions[0].Name != "ssh" ||
@@ -150,6 +158,8 @@ func TestDecodeValidation(t *testing.T) {
 		{name: "enabled proxy without URLs", yaml: "proxy: {enabled: true}\n"},
 		{name: "empty proxy URL", yaml: "proxy: {urls: ['']}\n"},
 		{name: "unknown proxy strategy", yaml: "proxy: {strategy: first}\n"},
+		{name: "empty report destination", yaml: "report: {enabled: true, destination: ''}\n"},
+		{name: "unknown report format", yaml: "report: {format: xml}\n"},
 		{name: "zero probe timeout", yaml: "probes: {timeout: 0s}\n"},
 		{name: "enabled probe without ports", yaml: "probes: {ssh: {ports: []}}\n"},
 		{name: "invalid probe port", yaml: "probes: {ssh: {ports: [65536]}}\n"},
@@ -234,6 +244,10 @@ func TestExampleConfiguration(t *testing.T) {
 		configuration.Discovery.Strategy != DiscoveryStrategyICMPThenTCP ||
 		!reflect.DeepEqual(configuration.ExpandedDiscoveryPorts(), []int{22, 80, 443, 445, 3389, 5985}) {
 		t.Errorf("example discovery settings = %#v", configuration.Discovery)
+	}
+	if configuration.Report.Enabled || configuration.Report.Destination != "scan-report.json" ||
+		configuration.Report.Format != ReportFormatJSON {
+		t.Errorf("example report settings = %#v", configuration.Report)
 	}
 	if !configuration.Probes.SSH.Enabled || !configuration.Probes.FTPSExplicit.Enabled {
 		t.Errorf("example protocol switches = %#v, want SSH and FTPS explicit enabled", configuration.Probes)

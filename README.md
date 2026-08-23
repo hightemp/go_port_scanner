@@ -26,6 +26,8 @@ inclusive port ranges.
 - `round_robin`, `random`, and `least_connections` proxy selection.
 - Optional protocol handshakes for remote access, databases, brokers,
   key/value stores, and Windows/Active Directory services.
+- Optional `text`, `json`, `jsonl`, and `csv` reports to stdout, stderr, or a
+  file.
 - Quiet, info, debug, and trace output levels.
 - Static release binaries for Linux, macOS, and Windows on amd64 and arm64.
 
@@ -128,6 +130,11 @@ discovery:
   workers: 256
   timeout: 500ms
   tcp_ports: [22, 80, 443, 445, 3389, 5985]
+
+report:
+  enabled: false
+  destination: scan-report.json
+  format: json
 ```
 
 Each `targets` entry may use one of these forms:
@@ -238,6 +245,45 @@ in the repository. Prefer `ping_group_range` or `CAP_NET_RAW` instead.
 When a proxy pool is enabled, TCP discovery uses the same proxy path as the
 port scan. ICMP is always sent directly because HTTP and SOCKS proxies cannot
 forward it.
+
+### Reports
+
+Final reports are optional and disabled by default:
+
+```yaml
+report:
+  enabled: true
+  destination: reports/scan.json
+  format: json
+```
+
+`report.destination` accepts:
+
+- `stdout` for standard output;
+- `stderr` for standard error;
+- any other value as a file path, such as `reports/scan.csv`.
+
+Missing parent directories are created automatically. Existing report files
+are replaced only after the scan reaches report generation. The active YAML
+configuration file is protected from being used as the report destination.
+When a report is sent to `stdout`, regular open-port output and diagnostic logs
+are redirected to `stderr`, keeping JSON, JSONL, or CSV stdout valid for pipes.
+
+Available formats:
+
+| Format | Contents |
+| --- | --- |
+| `text` | Human-readable discovery, open-port, probe, and summary lines |
+| `json` | One structured document with schema version `1` |
+| `jsonl` | Metadata, discovery, open-port, and summary records, one JSON object per line |
+| `csv` | Normalized metadata, discovery, open-port, probe, and summary rows |
+
+Reports include requested and scanned targets, discovery availability, open
+ports, connection durations, protocol handshake results, and aggregate scan
+statistics. Individual closed-port records are intentionally not retained;
+their refused, timeout, unreachable, and other-error counts are included in
+the summary. If the port scan is interrupted, the partial report has status
+`interrupted`, the completed-check count, and the interruption error.
 
 ### Proxy pool
 
@@ -363,6 +409,7 @@ internal/discovery/   optional TCP and ICMP host discovery
 internal/logging/     verbosity-aware output
 internal/probe/       modular application-protocol handshakes
 internal/proxypool/   proxy parsing, selection, and dialing
+internal/report/      text, JSON, JSONL, and CSV report serialization
 internal/scanner/     concurrent TCP scanner
 ```
 
