@@ -22,6 +22,8 @@ scanner:
   progress_interval: 5s
   # Available values: quiet, info, debug, trace.
   verbosity: quiet
+  # Optional log file. Empty disables file logging; existing files are appended.
+  log_file: ""
 
 # Optional host availability check performed before the full port scan.
 discovery:

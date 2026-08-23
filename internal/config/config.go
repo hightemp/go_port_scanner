@@ -145,6 +145,7 @@ type Scanner struct {
 	ScanTimeout      Duration  `yaml:"scan_timeout"`
 	ProgressInterval Duration  `yaml:"progress_interval"`
 	Verbosity        Verbosity `yaml:"verbosity"`
+	LogFile          string    `yaml:"log_file"`
 }
 
 // Discovery contains optional host availability checks performed before scanning.
@@ -363,6 +364,9 @@ func (c Config) Validate() error {
 	}
 	if c.Scanner.ProgressInterval.Duration < 0 {
 		return errors.New("scanner.progress_interval must not be negative")
+	}
+	if c.Scanner.LogFile != "" && strings.TrimSpace(c.Scanner.LogFile) == "" {
+		return errors.New("scanner.log_file must not be blank")
 	}
 	if err := c.validateDiscovery(); err != nil {
 		return err

@@ -129,6 +129,7 @@ scanner:
   scan_timeout: 2m
   progress_interval: 5s
   verbosity: info
+  log_file: logs/scanner.log
 
 discovery:
   enabled: true
@@ -282,6 +283,22 @@ in the repository. Prefer `ping_group_range` or `CAP_NET_RAW` instead.
 When a proxy pool is enabled, TCP discovery uses the same proxy path as the
 port scan. ICMP is always sent directly because HTTP and SOCKS proxies cannot
 forward it.
+
+### Logs
+
+Terminal output can optionally be duplicated to a log file:
+
+```yaml
+scanner:
+  verbosity: debug
+  log_file: logs/scanner.log
+```
+
+An empty `scanner.log_file` disables file logging. Missing parent directories
+are created automatically, and existing log files are appended instead of
+replaced. The configured verbosity applies equally to terminal and file
+output. The active configuration file and report destination cannot be reused
+as the log file.
 
 ### Reports
 

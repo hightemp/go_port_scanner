@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,7 +30,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+func run(ctx context.Context, args []string, stdout, stderr io.Writer) (resultError error) {
 	options, err := cli.Parse(args, stderr)
 	if errors.Is(err, flag.ErrHelp) {
 		return nil
@@ -48,6 +49,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if err := validateReportDestination(configuration, options.ConfigPath); err != nil {
 		return fmt.Errorf("validate report: %w", err)
 	}
+	if err := validateLogFileDestination(configuration, options.ConfigPath); err != nil {
+		return fmt.Errorf("validate log file: %w", err)
+	}
 	targets, err := configuration.ExpandedTargets()
 	if err != nil {
 		return fmt.Errorf("expand targets: %w", err)
@@ -55,7 +59,25 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	ports := configuration.ExpandedPorts()
 
 	requestedTargets := append([]string(nil), targets...)
-	logger := logging.New(reportLogOutput(configuration, stdout, stderr), logging.Level(configuration.VerbosityLevel()))
+	logOutput, logFile, err := openLogOutput(
+		configuration.Scanner.LogFile,
+		reportLogOutput(configuration, stdout, stderr),
+	)
+	if err != nil {
+		return err
+	}
+	logger := logging.New(logOutput, logging.Level(configuration.VerbosityLevel()))
+	defer func() {
+		if loggerErr := logger.Err(); loggerErr != nil {
+			resultError = errors.Join(resultError, loggerErr)
+		}
+		if logFile != nil {
+			resultError = errors.Join(
+				resultError,
+				wrapLogCloseError(strings.TrimSpace(configuration.Scanner.LogFile), logFile.Close()),
+			)
+		}
+	}()
 	scanContext := ctx
 	if configuration.Scanner.ScanTimeout.Duration > 0 {
 		var cancel context.CancelFunc
@@ -207,9 +229,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	finishedAt := time.Now()
 	statistics.logSummary(logger, finishedAt.Sub(scanStartedAt))
 	scanError := scanContext.Err()
-	var resultError error
+	var scanResultError error
 	if scanError != nil {
-		resultError = fmt.Errorf("scan interrupted: %w", scanError)
+		scanResultError = fmt.Errorf("scan interrupted: %w", scanError)
 		logger.Infof("Scan interrupted after %v\n", finishedAt.Sub(startedAt))
 	} else {
 		logger.Debugf("Finished sending ports\n")
@@ -229,7 +251,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		hostnames,
 	)
 	if err := writeConfiguredReport(configuration, document, stdout, stderr); err != nil {
-		resultError = errors.Join(resultError, err)
+		scanResultError = errors.Join(scanResultError, err)
 	} else if configuration.Report.Enabled {
 		logger.Infof(
 			"Report written to %s in %s format\n",
@@ -237,10 +259,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			configuration.Report.Format,
 		)
 	}
-	if err := logger.Err(); err != nil {
-		resultError = errors.Join(resultError, err)
-	}
-	return resultError
+	return scanResultError
 }
 
 func handleScanEvent(logger *logging.Logger, event scanner.Event, multipleTargets bool, hostname string) {

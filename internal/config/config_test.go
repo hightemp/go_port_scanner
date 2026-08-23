@@ -26,6 +26,7 @@ scanner:
   scan_timeout: 30s
   progress_interval: 2s
   verbosity: debug
+  log_file: logs/scanner.log
 discovery:
   enabled: true
   strategy: tcp
@@ -102,6 +103,9 @@ report:
 	if got.VerbosityLevel() != 2 {
 		t.Errorf("VerbosityLevel() = %d, want 2", got.VerbosityLevel())
 	}
+	if got.Scanner.LogFile != "logs/scanner.log" {
+		t.Errorf("LogFile = %q, want logs/scanner.log", got.Scanner.LogFile)
+	}
 	if !got.Discovery.Enabled || got.Discovery.Strategy != DiscoveryStrategyTCP ||
 		got.Discovery.Workers != 12 || got.Discovery.Timeout.Duration != 200*time.Millisecond ||
 		!reflect.DeepEqual(got.ExpandedDiscoveryPorts(), []int{22, 80, 81}) {
@@ -176,6 +180,7 @@ func TestDecodeValidation(t *testing.T) {
 		{name: "zero dial timeout", yaml: "scanner: {dial_timeout: 0s}\n"},
 		{name: "negative scan timeout", yaml: "scanner: {scan_timeout: -1s}\n"},
 		{name: "negative progress interval", yaml: "scanner: {progress_interval: -1s}\n"},
+		{name: "blank log file", yaml: "scanner: {log_file: '   '}\n"},
 		{name: "unknown discovery strategy", yaml: "discovery: {strategy: unknown}\n"},
 		{name: "zero discovery workers", yaml: "discovery: {workers: 0}\n"},
 		{name: "zero discovery timeout", yaml: "discovery: {timeout: 0s}\n"},
@@ -281,6 +286,9 @@ func TestExampleConfiguration(t *testing.T) {
 	if configuration.Report.Enabled || configuration.Report.OnlyWorking || configuration.Report.Destination != "scan-report.json" ||
 		configuration.Report.Format != ReportFormatJSON {
 		t.Errorf("example report settings = %#v", configuration.Report)
+	}
+	if configuration.Scanner.LogFile != "" {
+		t.Errorf("example scanner.log_file = %q, want disabled", configuration.Scanner.LogFile)
 	}
 	if !configuration.Probes.SSH.Enabled || !configuration.Probes.FTPSExplicit.Enabled ||
 		!configuration.Probes.HTTP.Enabled || !configuration.Probes.HTTPS.Enabled ||
