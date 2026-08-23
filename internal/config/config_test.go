@@ -25,6 +25,12 @@ scanner:
   dial_timeout: 250ms
   scan_timeout: 30s
   verbosity: debug
+discovery:
+  enabled: true
+  strategy: tcp
+  workers: 12
+  timeout: 200ms
+  tcp_ports: [22, 80-81]
 proxy:
   enabled: true
   strategy: random
@@ -70,6 +76,11 @@ probes:
 	}
 	if got.VerbosityLevel() != 2 {
 		t.Errorf("VerbosityLevel() = %d, want 2", got.VerbosityLevel())
+	}
+	if !got.Discovery.Enabled || got.Discovery.Strategy != DiscoveryStrategyTCP ||
+		got.Discovery.Workers != 12 || got.Discovery.Timeout.Duration != 200*time.Millisecond ||
+		!reflect.DeepEqual(got.ExpandedDiscoveryPorts(), []int{22, 80, 81}) {
+		t.Errorf("Discovery = %#v, want enabled TCP discovery", got.Discovery)
 	}
 	if !got.Proxy.Enabled || got.Proxy.Strategy != ProxyStrategyRandom ||
 		!got.Proxy.TLSInsecureSkipVerify || len(got.Proxy.URLs) != 2 {
@@ -125,6 +136,11 @@ func TestDecodeValidation(t *testing.T) {
 		{name: "target expansion exceeds limit", yaml: "targets: [192.0.2.0/30]\nscanner: {max_targets: 3}\n"},
 		{name: "zero dial timeout", yaml: "scanner: {dial_timeout: 0s}\n"},
 		{name: "negative scan timeout", yaml: "scanner: {scan_timeout: -1s}\n"},
+		{name: "unknown discovery strategy", yaml: "discovery: {strategy: unknown}\n"},
+		{name: "zero discovery workers", yaml: "discovery: {workers: 0}\n"},
+		{name: "zero discovery timeout", yaml: "discovery: {timeout: 0s}\n"},
+		{name: "TCP discovery without ports", yaml: "discovery: {enabled: true, strategy: tcp, tcp_ports: []}\n"},
+		{name: "invalid discovery port", yaml: "discovery: {enabled: true, strategy: tcp, tcp_ports: [65536]}\n"},
 		{name: "unknown verbosity", yaml: "scanner: {verbosity: verbose}\n"},
 		{name: "enabled proxy without URLs", yaml: "proxy: {enabled: true}\n"},
 		{name: "empty proxy URL", yaml: "proxy: {urls: ['']}\n"},
@@ -208,6 +224,11 @@ func TestExampleConfiguration(t *testing.T) {
 	}
 	if configuration.Probes.Enabled {
 		t.Fatal("example protocol probes are enabled, want safe disabled default")
+	}
+	if configuration.Discovery.Enabled ||
+		configuration.Discovery.Strategy != DiscoveryStrategyICMPThenTCP ||
+		!reflect.DeepEqual(configuration.ExpandedDiscoveryPorts(), []int{22, 80, 443, 445, 3389, 5985}) {
+		t.Errorf("example discovery settings = %#v", configuration.Discovery)
 	}
 	if !configuration.Probes.SSH.Enabled || !configuration.Probes.FTPSExplicit.Enabled {
 		t.Errorf("example protocol switches = %#v, want SSH and FTPS explicit enabled", configuration.Probes)

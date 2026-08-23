@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	maxPort           = 65535
-	defaultWorkers    = 10000
-	defaultMaxTargets = 65536
+	maxPort                 = 65535
+	defaultWorkers          = 10000
+	defaultMaxTargets       = 65536
+	defaultDiscoveryWorkers = 256
 )
 
 // DefaultPath is the configuration file loaded when -config is not specified.
@@ -28,6 +29,9 @@ type Verbosity string
 
 // ProxyStrategy controls how a proxy is selected for each connection.
 type ProxyStrategy string
+
+// DiscoveryStrategy controls how hosts are checked before their ports are scanned.
+type DiscoveryStrategy string
 
 const (
 	// VerbosityQuiet only prints open ports.
@@ -45,6 +49,15 @@ const (
 	ProxyStrategyRandom ProxyStrategy = "random"
 	// ProxyStrategyLeastConnections selects the proxy with the fewest active connections.
 	ProxyStrategyLeastConnections ProxyStrategy = "least_connections"
+
+	// DiscoveryStrategyNone skips host discovery even when it is enabled.
+	DiscoveryStrategyNone DiscoveryStrategy = "none"
+	// DiscoveryStrategyTCP checks whether any configured TCP port responds.
+	DiscoveryStrategyTCP DiscoveryStrategy = "tcp"
+	// DiscoveryStrategyICMP sends an ICMP echo request.
+	DiscoveryStrategyICMP DiscoveryStrategy = "icmp"
+	// DiscoveryStrategyICMPThenTCP tries ICMP first and falls back to TCP.
+	DiscoveryStrategyICMPThenTCP DiscoveryStrategy = "icmp_then_tcp"
 )
 
 // PortRange describes an inclusive TCP port range.
@@ -120,6 +133,15 @@ type Scanner struct {
 	Verbosity   Verbosity `yaml:"verbosity"`
 }
 
+// Discovery contains optional host availability checks performed before scanning.
+type Discovery struct {
+	Enabled  bool              `yaml:"enabled"`
+	Strategy DiscoveryStrategy `yaml:"strategy"`
+	Workers  int               `yaml:"workers"`
+	Timeout  Duration          `yaml:"timeout"`
+	TCPPorts []PortRange       `yaml:"tcp_ports"`
+}
+
 // Proxy contains optional HTTP, HTTPS, and SOCKS5 proxy pool settings.
 type Proxy struct {
 	Enabled               bool          `yaml:"enabled"`
@@ -175,11 +197,12 @@ type ProbeDefinition struct {
 
 // Config contains the complete scanner configuration.
 type Config struct {
-	Targets []string    `yaml:"targets"`
-	Ports   []PortRange `yaml:"ports"`
-	Scanner Scanner     `yaml:"scanner"`
-	Proxy   Proxy       `yaml:"proxy"`
-	Probes  Probes      `yaml:"probes"`
+	Targets   []string    `yaml:"targets"`
+	Ports     []PortRange `yaml:"ports"`
+	Scanner   Scanner     `yaml:"scanner"`
+	Discovery Discovery   `yaml:"discovery"`
+	Proxy     Proxy       `yaml:"proxy"`
+	Probes    Probes      `yaml:"probes"`
 }
 
 // Default returns the built-in scanner configuration.
@@ -193,6 +216,20 @@ func Default() Config {
 			DialTimeout: Duration{Duration: time.Second},
 			ScanTimeout: Duration{},
 			Verbosity:   VerbosityQuiet,
+		},
+		Discovery: Discovery{
+			Enabled:  false,
+			Strategy: DiscoveryStrategyICMPThenTCP,
+			Workers:  defaultDiscoveryWorkers,
+			Timeout:  Duration{Duration: 500 * time.Millisecond},
+			TCPPorts: []PortRange{
+				{Start: 22, End: 22},
+				{Start: 80, End: 80},
+				{Start: 443, End: 443},
+				{Start: 445, End: 445},
+				{Start: 3389, End: 3389},
+				{Start: 5985, End: 5985},
+			},
 		},
 		Proxy: Proxy{
 			Enabled:  false,
@@ -277,6 +314,9 @@ func (c Config) Validate() error {
 	if c.Scanner.ScanTimeout.Duration < 0 {
 		return errors.New("scanner.scan_timeout must not be negative")
 	}
+	if err := c.validateDiscovery(); err != nil {
+		return err
+	}
 	if c.Probes.Timeout.Duration <= 0 {
 		return errors.New("probes.timeout must be greater than zero")
 	}
@@ -312,6 +352,33 @@ func (c Config) Validate() error {
 	default:
 		return fmt.Errorf("unsupported scanner.verbosity %q", c.Scanner.Verbosity)
 	}
+}
+
+func (c Config) validateDiscovery() error {
+	switch c.Discovery.Strategy {
+	case DiscoveryStrategyNone, DiscoveryStrategyTCP, DiscoveryStrategyICMP, DiscoveryStrategyICMPThenTCP:
+	default:
+		return fmt.Errorf("unsupported discovery.strategy %q", c.Discovery.Strategy)
+	}
+	if c.Discovery.Workers < 1 {
+		return errors.New("discovery.workers must be greater than zero")
+	}
+	if c.Discovery.Timeout.Duration <= 0 {
+		return errors.New("discovery.timeout must be greater than zero")
+	}
+	if !c.Discovery.Enabled || c.Discovery.Strategy == DiscoveryStrategyNone ||
+		c.Discovery.Strategy == DiscoveryStrategyICMP {
+		return nil
+	}
+	if len(c.Discovery.TCPPorts) == 0 {
+		return errors.New("discovery.tcp_ports must not be empty for a TCP discovery strategy")
+	}
+	for index, portRange := range c.Discovery.TCPPorts {
+		if portRange.Start < 1 || portRange.End > maxPort || portRange.Start > portRange.End {
+			return fmt.Errorf("discovery.tcp_ports[%d] must be between 1 and %d", index, maxPort)
+		}
+	}
+	return nil
 }
 
 func defaultProbes() Probes {
@@ -402,6 +469,11 @@ func (c Config) ExpandedPorts() []int {
 		}
 	}
 	return ports
+}
+
+// ExpandedDiscoveryPorts returns unique TCP discovery ports in configured order.
+func (c Config) ExpandedDiscoveryPorts() []int {
+	return expandPortRanges(c.Discovery.TCPPorts)
 }
 
 // VerbosityLevel returns the numeric logging level for the configuration.

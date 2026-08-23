@@ -13,6 +13,7 @@ import (
 
 	"github.com/hightemp/go_port_scanner/internal/cli"
 	appconfig "github.com/hightemp/go_port_scanner/internal/config"
+	"github.com/hightemp/go_port_scanner/internal/discovery"
 	"github.com/hightemp/go_port_scanner/internal/logging"
 	"github.com/hightemp/go_port_scanner/internal/proxypool"
 	"github.com/hightemp/go_port_scanner/internal/scanner"
@@ -48,12 +49,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	ports := configuration.ExpandedPorts()
 
 	logger := logging.New(stdout, logging.Level(configuration.VerbosityLevel()))
-	logger.Infof(
-		"Starting scan of %d target(s), %d port(s) with %d workers\n",
-		len(targets),
-		len(ports),
-		configuration.Scanner.Workers,
-	)
+	scanContext := ctx
+	if configuration.Scanner.ScanTimeout.Duration > 0 {
+		var cancel context.CancelFunc
+		scanContext, cancel = context.WithTimeout(ctx, configuration.Scanner.ScanTimeout.Duration)
+		defer cancel()
+	}
+	startedAt := time.Now()
 
 	var scanDialer scanner.Dialer
 	if configuration.Proxy.Enabled {
@@ -69,6 +71,66 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		scanDialer = proxyPool
 		logger.Infof("Proxy pool enabled with %d proxies (%s)\n", proxyPool.Len(), proxyPool.Strategy())
 	}
+
+	if configuration.Discovery.Enabled &&
+		configuration.Discovery.Strategy != appconfig.DiscoveryStrategyNone {
+		logger.Infof(
+			"Discovering %d target(s) with %s strategy and %d workers\n",
+			len(targets),
+			configuration.Discovery.Strategy,
+			configuration.Discovery.Workers,
+		)
+		hostDiscoverer, err := discovery.New(discovery.Config{
+			Strategy: discovery.Strategy(configuration.Discovery.Strategy),
+			Ports:    configuration.ExpandedDiscoveryPorts(),
+			Workers:  configuration.Discovery.Workers,
+			Timeout:  configuration.Discovery.Timeout.Duration,
+			Dialer:   scanDialer,
+		})
+		if err != nil {
+			return fmt.Errorf("configure host discovery: %w", err)
+		}
+		results, err := hostDiscoverer.Discover(scanContext, targets)
+		if err != nil {
+			return fmt.Errorf("run host discovery: %w", err)
+		}
+
+		reachableTargets := make([]string, 0, len(targets))
+		var firstDiscoveryError error
+		for _, result := range results {
+			if result.Alive {
+				reachableTargets = append(reachableTargets, result.Target)
+				logger.Debugf("Host %s is reachable via %s\n", result.Target, result.Method)
+				if result.Err != nil {
+					logger.Debugf("Host discovery cleanup for %s failed: %v\n", result.Target, result.Err)
+				}
+				continue
+			}
+			if result.Err != nil {
+				if firstDiscoveryError == nil {
+					firstDiscoveryError = result.Err
+				}
+				logger.Debugf("Skipping target %s after discovery error: %v\n", result.Target, result.Err)
+				continue
+			}
+			logger.Debugf("Skipping unreachable target %s\n", result.Target)
+		}
+		if len(reachableTargets) == 0 {
+			if firstDiscoveryError != nil {
+				return fmt.Errorf("host discovery found no reachable targets: %w", firstDiscoveryError)
+			}
+			return errors.New("host discovery found no reachable targets")
+		}
+		targets = reachableTargets
+		logger.Infof("Host discovery completed: %d target(s) reachable\n", len(targets))
+	}
+
+	logger.Infof(
+		"Starting scan of %d target(s), %d port(s) with %d workers\n",
+		len(targets),
+		len(ports),
+		configuration.Scanner.Workers,
+	)
 
 	probeRegistry, err := newProbeRegistry(configuration)
 	if err != nil {
@@ -94,14 +156,6 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		logger.Debugf("Adjusted workers count to %d\n", portScanner.Workers())
 	}
 
-	scanContext := ctx
-	if configuration.Scanner.ScanTimeout.Duration > 0 {
-		var cancel context.CancelFunc
-		scanContext, cancel = context.WithTimeout(ctx, configuration.Scanner.ScanTimeout.Duration)
-		defer cancel()
-	}
-
-	startedAt := time.Now()
 	logger.Debugf("Starting %d workers...\n", portScanner.Workers())
 	logger.Debugf("Sending %d checks to workers...\n", portScanner.Checks())
 

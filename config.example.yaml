@@ -21,6 +21,19 @@ scanner:
   # Available values: quiet, info, debug, trace.
   verbosity: quiet
 
+# Optional host availability check performed before the full port scan.
+discovery:
+  enabled: false
+  # Available values: none, tcp, icmp, icmp_then_tcp.
+  # icmp_then_tcp tolerates blocked or unavailable ICMP by falling back to TCP.
+  strategy: icmp_then_tcp
+  workers: 256
+  # Per ICMP request or TCP port attempt.
+  timeout: 500ms
+  # Used by tcp and icmp_then_tcp. A successful connection or explicit
+  # connection refusal means that the host is reachable.
+  tcp_ports: [22, 80, 443, 445, 3389, 5985]
+
 proxy:
   enabled: false
   # Available values: round_robin, random, least_connections.

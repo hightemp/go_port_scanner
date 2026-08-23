@@ -104,6 +104,53 @@ proxy:
 	}
 }
 
+func TestRunUsesTCPHostDiscovery(t *testing.T) {
+	t.Parallel()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen() error = %v", err)
+	}
+	defer listener.Close()
+
+	_, port, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatalf("net.SplitHostPort() error = %v", err)
+	}
+	configPath := t.TempDir() + "/config.yaml"
+	yamlConfig := fmt.Sprintf(`
+targets: [127.0.0.1]
+ports: [%s]
+scanner:
+  workers: 1
+  dial_timeout: 1s
+  verbosity: info
+discovery:
+  enabled: true
+  strategy: tcp
+  workers: 1
+  timeout: 1s
+  tcp_ports: [%s]
+`, port, port)
+	if err := os.WriteFile(configPath, []byte(yamlConfig), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := run(context.Background(), []string{"-config", configPath}, &stdout, &bytes.Buffer{}); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	for _, want := range []string{
+		"Discovering 1 target(s) with tcp strategy",
+		"Host discovery completed: 1 target(s) reachable",
+		"TCP: " + port,
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("run() output = %q, want it to contain %q", stdout.String(), want)
+		}
+	}
+}
+
 func TestRunReportsSSHHandshake(t *testing.T) {
 	t.Parallel()
 

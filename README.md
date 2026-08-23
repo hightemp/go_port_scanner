@@ -21,6 +21,7 @@ inclusive port ranges.
 - Per-connection and whole-scan timeouts.
 - Multiple hostnames, individual IPs, CIDR subnets, and inclusive IP ranges.
 - Deduplication of overlapping target specifications and port ranges.
+- Optional parallel host discovery using TCP, ICMP, or ICMP with TCP fallback.
 - HTTP, HTTPS CONNECT, and SOCKS5 proxy pools.
 - `round_robin`, `random`, and `least_connections` proxy selection.
 - Optional protocol handshakes for remote access, databases, brokers,
@@ -119,6 +120,13 @@ scanner:
   dial_timeout: 750ms
   scan_timeout: 2m
   verbosity: info
+
+discovery:
+  enabled: true
+  strategy: icmp_then_tcp
+  workers: 256
+  timeout: 500ms
+  tcp_ports: [22, 80, 443, 445, 3389, 5985]
 ```
 
 Each `targets` entry may use one of these forms:
@@ -140,6 +148,44 @@ the target list or raise the limit explicitly when a larger scan is intended.
 Ports accept individual values and inclusive ranges. Overlapping port ranges
 are also deduplicated in their configured order. The effective worker count
 never exceeds the total number of target/port checks.
+
+### Host discovery
+
+Host discovery is disabled by default. When enabled, it filters unavailable
+targets before the full port scan begins:
+
+```yaml
+discovery:
+  enabled: true
+  strategy: icmp_then_tcp
+  workers: 256
+  timeout: 500ms
+  tcp_ports: [22, 80, 443, 445, 3389, 5985]
+```
+
+Available strategies:
+
+| Strategy | Behavior |
+| --- | --- |
+| `none` | Do not probe or filter targets, even when discovery is enabled |
+| `tcp` | Try the configured TCP ports; a connection or explicit refusal marks the host reachable |
+| `icmp` | Require an ICMP echo reply |
+| `icmp_then_tcp` | Try ICMP first, then fall back to the configured TCP ports |
+
+`discovery.timeout` applies to each ICMP request or TCP port attempt. Discovery
+uses its own bounded worker pool and preserves the configured target order.
+The TCP discovery ports do not need to be present in the main `ports` list.
+
+ICMP may be blocked by a firewall. Unprivileged ICMP is supported natively on
+Linux and macOS; raw ICMP fallback may require elevated privileges and is
+platform-dependent. For that reason, `icmp_then_tcp` is the recommended
+strategy. If a host blocks both ICMP and every configured discovery TCP port,
+it will be skipped even if another port is open; add an appropriate discovery
+port or use `none` to avoid that false negative.
+
+When a proxy pool is enabled, TCP discovery uses the same proxy path as the
+port scan. ICMP is always sent directly because HTTP and SOCKS proxies cannot
+forward it.
 
 ### Proxy pool
 
@@ -255,6 +301,7 @@ Project layout:
 cmd/go-port-scanner/  CLI entry point, output, and application wiring
 internal/cli/         command-line parsing
 internal/config/      YAML defaults, loading, and validation
+internal/discovery/   optional TCP and ICMP host discovery
 internal/logging/     verbosity-aware output
 internal/probe/       modular application-protocol handshakes
 internal/proxypool/   proxy parsing, selection, and dialing
