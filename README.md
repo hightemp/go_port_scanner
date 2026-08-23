@@ -187,6 +187,54 @@ strategy. If a host blocks both ICMP and every configured discovery TCP port,
 it will be skipped even if another port is open; add an appropriate discovery
 port or use `none` to avoid that false negative.
 
+#### Linux ICMP permissions
+
+First check whether the current user's group is allowed to create unprivileged
+ICMP sockets:
+
+```console
+id -g
+sysctl net.ipv4.ping_group_range
+```
+
+The preferred option is to allow only the current primary group. This avoids
+running the entire scanner as root:
+
+```console
+scanner_gid="$(id -g)"
+sudo sysctl -w "net.ipv4.ping_group_range=${scanner_gid} ${scanner_gid}"
+```
+
+To preserve the setting across reboots:
+
+```console
+scanner_gid="$(id -g)"
+printf 'net.ipv4.ping_group_range = %s %s\n' "$scanner_gid" "$scanner_gid" |
+  sudo tee /etc/sysctl.d/99-go-port-scanner.conf
+sudo sysctl --system
+```
+
+Alternatively, grant only the raw-network capability to the built binary
+(`setcap` is commonly provided by the `libcap2-bin` package):
+
+```console
+make build
+sudo setcap cap_net_raw+ep ./go_port_scanner
+getcap ./go_port_scanner
+./go_port_scanner -vv
+```
+
+File capabilities are normally removed when the binary is rebuilt, so repeat
+`setcap` after each `make build`. A one-off privileged launch is also possible:
+
+```console
+make build
+sudo ./go_port_scanner -config "$PWD/config.yaml" -vv
+```
+
+Do not use `sudo make run`: it builds as root and may leave root-owned artifacts
+in the repository. Prefer `ping_group_range` or `CAP_NET_RAW` instead.
+
 When a proxy pool is enabled, TCP discovery uses the same proxy path as the
 port scan. ICMP is always sent directly because HTTP and SOCKS proxies cannot
 forward it.
