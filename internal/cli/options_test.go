@@ -24,7 +24,7 @@ func TestParse(t *testing.T) {
 				}
 				if got.Host != nil || got.Workers != nil || got.StartPort != nil ||
 					got.EndPort != nil || got.DialTimeout != nil || got.ScanTimeout != nil ||
-					got.Verbosity != nil {
+					got.Verbosity != nil || got.ShowVersion {
 					t.Errorf("defaults unexpectedly contain overrides: %#v", got)
 				}
 			},
@@ -67,6 +67,24 @@ func TestParse(t *testing.T) {
 				assertPointer(t, "EndPort", got.EndPort, 65535)
 			},
 		},
+		{
+			name: "version flag",
+			args: []string{"--version"},
+			want: func(t *testing.T, got Options) {
+				if !got.ShowVersion {
+					t.Error("ShowVersion = false, want true")
+				}
+			},
+		},
+		{
+			name: "version command",
+			args: []string{"version"},
+			want: func(t *testing.T, got Options) {
+				if !got.ShowVersion {
+					t.Error("ShowVersion = false, want true")
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -78,6 +96,23 @@ func TestParse(t *testing.T) {
 				t.Fatalf("Parse() error = %v", err)
 			}
 			tt.want(t, got)
+		})
+	}
+}
+
+func TestParseRejectsUnexpectedPositionalArguments(t *testing.T) {
+	t.Parallel()
+
+	tests := [][]string{
+		{"scan"},
+		{"version", "extra"},
+	}
+	for _, args := range tests {
+		t.Run(args[0], func(t *testing.T) {
+			t.Parallel()
+			if _, err := Parse(args, io.Discard); err == nil {
+				t.Fatalf("Parse(%q) error = nil, want positional argument error", args)
+			}
 		})
 	}
 }

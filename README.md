@@ -49,8 +49,11 @@ cd go_port_scanner
 make build
 ```
 
-`make build` creates `./go_port_scanner`. A static binary can be built with
-`make build_static`. You can also install the command directly:
+`make build` creates `./go_port_scanner` and embeds the value from `VERSION`.
+The file is also included through Go's embed mechanism, so a direct `go build`
+uses the same version even without linker flags. A static binary with the same
+embedded version can be built with `make build_static`. You can also install
+the command directly:
 
 ```console
 go install github.com/hightemp/go_port_scanner/cmd/go-port-scanner@latest
@@ -90,13 +93,15 @@ load the built-in defaults.
 | `-workers N` | Number of concurrent workers | `10000` |
 | `-timeout DURATION` | Per-connection timeout | `1s` |
 | `-scan-timeout DURATION` | Timeout for the entire scan; `0` disables it | `0s` |
+| `-version`, `--version` | Print the embedded build version and exit | off |
 | `-v` | Info output | off |
 | `-vv` | Debug output | off |
 | `-vvv` | Trace every checked and closed port | off |
 
 Only explicitly supplied flags override YAML values. Supplying either `-start`
 or `-end` replaces the YAML port list; the omitted boundary uses its CLI
-default. Run `./go_port_scanner -h` for generated help.
+default. The positional command `./go_port_scanner version` is equivalent to
+`--version`. Run `./go_port_scanner -h` for generated help.
 
 ## Configuration
 
@@ -467,8 +472,8 @@ Useful Make targets:
 
 | Target | Action |
 | --- | --- |
-| `make build` | Build `go_port_scanner` |
-| `make build_static` | Build `go_port_scanner_static` with CGO disabled |
+| `make build` | Build `go_port_scanner` with the version from `VERSION` |
+| `make build_static` | Build versioned `go_port_scanner_static` with CGO disabled |
 | `make run` | Build and run using the default configuration |
 | `make clean` | Remove the regular build artifact |
 | `make release` | Test, commit, tag, and push a release |
@@ -504,5 +509,6 @@ make release
 
 The target runs `go test -race ./...`, creates a `release: v<version>` commit,
 and pushes the tag. The Release workflow verifies that the tag matches
-`VERSION`, then publishes Linux, macOS, and Windows binaries for amd64/arm64,
+`VERSION`, embeds that version in every binary, verifies the Linux artifact via
+`--version`, then publishes Linux, macOS, and Windows binaries for amd64/arm64,
 `config.example.yaml`, and SHA-256 checksums.

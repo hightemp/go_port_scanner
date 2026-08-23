@@ -42,6 +42,8 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           cp config.example.yaml dist/config.example.yaml
+          release_version="$(tr -d '[:space:]' < VERSION)"
+          release_version="${release_version#v}"
 
           for target in \
             linux/amd64 linux/arm64 \
@@ -56,9 +58,16 @@ jobs:
             fi
 
             CGO_ENABLED=0 GOOS="${release_os}" GOARCH="${release_arch}" \
-              go build -trimpath -ldflags="-s -w" \
+              go build -trimpath -ldflags="-s -w -X main.version=${release_version}" \
               -o "${release_output}" ./cmd/go-port-scanner
           done
+
+          expected_version="go_port_scanner ${release_version}"
+          actual_version="$("dist/go_port_scanner_${GITHUB_REF_NAME}_linux_amd64" --version)"
+          if [[ "${actual_version}" != "${expected_version}" ]]; then
+            echo "Built version ${actual_version} does not match ${expected_version}" >&2
+            exit 1
+          fi
 
           (
             cd dist

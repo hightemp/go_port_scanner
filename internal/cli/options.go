@@ -3,6 +3,7 @@ package cli
 
 import (
 	"flag"
+	"fmt"
 	"io"
 	"time"
 
@@ -19,6 +20,7 @@ type Options struct {
 	DialTimeout *time.Duration
 	ScanTimeout *time.Duration
 	Verbosity   *int
+	ShowVersion bool
 }
 
 // Parse parses scanner options from args and writes flag help to output.
@@ -37,12 +39,19 @@ func Parse(args []string, output io.Writer) (Options, error) {
 	verbose := flags.Bool("v", false, "Enable verbose output (info)")
 	moreVerbose := flags.Bool("vv", false, "Enable more verbose output (debug)")
 	mostVerbose := flags.Bool("vvv", false, "Enable most verbose output (trace)")
+	showVersion := flags.Bool("version", false, "Print build version and exit")
 
 	if err := flags.Parse(args); err != nil {
 		return Options{}, err
 	}
+	if flags.NArg() > 0 {
+		if flags.NArg() != 1 || flags.Arg(0) != "version" {
+			return Options{}, fmt.Errorf("unexpected positional arguments: %q", flags.Args())
+		}
+		*showVersion = true
+	}
 
-	options := Options{ConfigPath: *configPath}
+	options := Options{ConfigPath: *configPath, ShowVersion: *showVersion}
 	visited := make(map[string]bool)
 	flags.Visit(func(current *flag.Flag) {
 		visited[current.Name] = true

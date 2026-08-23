@@ -1,14 +1,23 @@
 PROJECT_NAME=go_port_scanner
 COMMAND=./cmd/go-port-scanner
 REMOTE?=origin
+VERSION_VALUE:=$(shell tr -d '[:space:]' < VERSION)
+VERSION_VALUE:=$(patsubst v%,%,$(VERSION_VALUE))
+VERSION_LDFLAGS=-X main.version=$(VERSION_VALUE)
 
-.PHONY: build build_static clean release run
+.PHONY: build build_static check_version clean release run
 
-build:
-	go build -o $(PROJECT_NAME) $(COMMAND)
+check_version:
+	@printf '%s\n' '$(VERSION_VALUE)' | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$$' || { \
+		echo "Invalid VERSION: $(VERSION_VALUE)" >&2; \
+		exit 1; \
+	}
 
-build_static:
-	CGO_ENABLED=0 go build -a -ldflags '-extldflags "-static"' -o $(PROJECT_NAME)_static $(COMMAND)
+build: check_version
+	go build -ldflags '$(VERSION_LDFLAGS)' -o $(PROJECT_NAME) $(COMMAND)
+
+build_static: check_version
+	CGO_ENABLED=0 go build -a -ldflags '$(VERSION_LDFLAGS) -extldflags "-static"' -o $(PROJECT_NAME)_static $(COMMAND)
 
 clean:
 	rm -f $(PROJECT_NAME)

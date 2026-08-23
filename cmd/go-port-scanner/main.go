@@ -37,6 +37,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("parse arguments: %w", err)
 	}
+	if options.ShowVersion {
+		return writeVersion(stdout)
+	}
 
 	configuration, err := loadConfig(options)
 	if err != nil {
