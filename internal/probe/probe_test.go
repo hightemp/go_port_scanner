@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -333,13 +334,18 @@ func TestTLSProbes(t *testing.T) {
 func TestRegistry(t *testing.T) {
 	t.Parallel()
 
-	names := []string{
+	definitionNames := []string{
 		"ssh", "ftp", "ftps_explicit", "ftps_implicit", "http", "https", "socks", "postgresql", "mysql", "mongodb", "mssql",
 		"cassandra", "elasticsearch", "rabbitmq", "kafka", "nats", "mqtt", "redis", "memcached", "etcd",
 		"rdp", "smb", "netbios", "msrpc", "kerberos", "ldap", "ldaps", "winrm", "winrm_https",
 	}
-	definitions := make([]Definition, 0, len(names)+1)
-	for _, name := range names {
+	wantProtocolNames := []string{
+		"ssh", "ftp", "ftps_explicit", "ftps_implicit", "http", "https", "socks5", "socks4", "postgresql", "mysql", "mongodb", "mssql",
+		"cassandra", "elasticsearch", "rabbitmq", "kafka", "nats", "mqtt", "redis", "memcached", "etcd",
+		"rdp", "smb", "netbios", "msrpc", "kerberos", "ldap", "ldaps", "winrm", "winrm_https",
+	}
+	definitions := make([]Definition, 0, len(definitionNames)+1)
+	for _, name := range definitionNames {
 		definitions = append(definitions, Definition{Name: name, Ports: []int{22}})
 	}
 	definitions = append(definitions, Definition{Name: "ssh", Ports: []int{2222}})
@@ -350,12 +356,16 @@ func TestRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRegistry() error = %v", err)
 	}
-	if got := registry.Count(); got != 30 {
-		t.Errorf("Count() = %d, want 30", got)
+	if got := registry.Count(); got != len(wantProtocolNames)+1 {
+		t.Errorf("Count() = %d, want %d", got, len(wantProtocolNames)+1)
 	}
 	protocols := registry.ForPort(22)
-	if len(protocols) != len(names) || protocols[0].Name() != "ssh" || protocols[1].Name() != "ftp" {
-		t.Errorf("ForPort(22) = %v, want all protocols in order", protocols)
+	gotProtocolNames := make([]string, 0, len(protocols))
+	for _, protocol := range protocols {
+		gotProtocolNames = append(gotProtocolNames, protocol.Name())
+	}
+	if !slices.Equal(gotProtocolNames, wantProtocolNames) {
+		t.Errorf("ForPort(22) names = %v, want %v", gotProtocolNames, wantProtocolNames)
 	}
 	if got := (*Registry)(nil).ForPort(22); got != nil {
 		t.Errorf("nil Registry.ForPort() = %v, want nil", got)

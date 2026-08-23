@@ -62,7 +62,7 @@ func NewRegistry(config Config) (*Registry, error) {
 		if len(definition.Ports) == 0 {
 			return nil, fmt.Errorf("probe %q has no ports", definition.Name)
 		}
-		protocol, err := newProtocol(definition.Name, config.TLSInsecureSkipVerify)
+		protocols, err := newProtocols(definition.Name, config.TLSInsecureSkipVerify)
 		if err != nil {
 			return nil, err
 		}
@@ -70,7 +70,7 @@ func NewRegistry(config Config) (*Registry, error) {
 			if port < 1 || port > 65535 {
 				return nil, fmt.Errorf("probe %q has invalid port %d", definition.Name, port)
 			}
-			registry.byPort[port] = append(registry.byPort[port], protocol)
+			registry.byPort[port] = append(registry.byPort[port], protocols...)
 		}
 	}
 	return registry, nil
@@ -124,6 +124,17 @@ func (r *Registry) Run(ctx context.Context, protocol Prober, connection net.Conn
 	return result
 }
 
+func newProtocols(name string, tlsInsecureSkipVerify bool) ([]Prober, error) {
+	if name == "socks" {
+		return []Prober{socks5Probe{}, socks4Probe{}}, nil
+	}
+	protocol, err := newProtocol(name, tlsInsecureSkipVerify)
+	if err != nil {
+		return nil, err
+	}
+	return []Prober{protocol}, nil
+}
+
 func newProtocol(name string, tlsInsecureSkipVerify bool) (Prober, error) {
 	switch name {
 	case "ssh":
@@ -138,8 +149,6 @@ func newProtocol(name string, tlsInsecureSkipVerify bool) (Prober, error) {
 		return httpProbe{}, nil
 	case "https":
 		return httpsProbe{tlsInsecureSkipVerify: tlsInsecureSkipVerify}, nil
-	case "socks":
-		return socksProbe{}, nil
 	case "postgresql":
 		return postgresqlProbe{}, nil
 	case "mysql":

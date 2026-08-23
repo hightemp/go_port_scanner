@@ -15,11 +15,11 @@ const (
 	socks5NoAcceptableMethods = 0xff
 )
 
-type socksProbe struct{}
+type socks5Probe struct{}
 
-func (socksProbe) Name() string { return "socks" }
+func (socks5Probe) Name() string { return "socks5" }
 
-func (socksProbe) Probe(_ context.Context, connection net.Conn, _ Target) (string, error) {
+func (socks5Probe) Probe(_ context.Context, connection net.Conn, _ Target) (string, error) {
 	greeting := []byte{
 		socks5Version,
 		3,

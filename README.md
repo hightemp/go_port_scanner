@@ -357,9 +357,13 @@ port is also present in the top-level `ports` scan list.
 | Windows management | `winrm`, `winrm_https` | 5985, 5986 |
 
 The HTTP probe sends `HEAD /` and accepts any valid HTTP response. HTTPS first
-performs a TLS handshake and then sends the same request. The SOCKS probe only
-negotiates SOCKS5 authentication methods; it never sends `CONNECT` or asks the
-proxy to contact another host.
+performs a TLS handshake and then sends the same request. The `socks` switch
+runs independent SOCKS5 and SOCKS4-compatible probes on separate TCP
+connections. SOCKS4a servers are covered by their SOCKS4 compatibility, but the
+extension is not reported separately. SOCKS5 only negotiates authentication
+methods. SOCKS4 has no negotiation-only message, so its required `CONNECT`
+request targets the deliberately invalid `0.0.0.0:0` endpoint rather than a
+real third-party host.
 
 MySQL handshakes also recognize MariaDB-compatible greetings. RabbitMQ uses
 AMQP 0-9-1. Explicit FTPS performs `AUTH TLS`; implicit FTPS starts directly

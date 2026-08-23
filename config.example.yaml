@@ -83,8 +83,9 @@ probes:
     enabled: true
     ports: [990]
 
-  # HTTP sends HEAD /. HTTPS first performs a TLS handshake. SOCKS performs
-  # only SOCKS5 authentication-method negotiation and never sends CONNECT.
+  # HTTP sends HEAD /. HTTPS first performs a TLS handshake. SOCKS runs
+  # independent SOCKS5 and SOCKS4-compatible checks on separate connections.
+  # The SOCKS4 request uses the deliberately invalid endpoint 0.0.0.0:0.
   http:
     enabled: true
     ports: [80]

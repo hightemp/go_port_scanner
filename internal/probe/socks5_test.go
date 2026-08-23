@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestSOCKSProbe(t *testing.T) {
+func TestSOCKS5Probe(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -29,21 +29,21 @@ func TestSOCKSProbe(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			result := runPipeProbe(t, socksProbe{}, socksServer(tt.response))
+			result := runPipeProbe(t, socks5Probe{}, socks5Server(tt.response))
 			if tt.wantError != "" {
 				if result.Err == nil || !strings.Contains(result.Err.Error(), tt.wantError) {
 					t.Fatalf("Run() error = %v, want it to contain %q", result.Err, tt.wantError)
 				}
 				return
 			}
-			if result.Err != nil || result.Protocol != "socks" || result.Detail != tt.wantDetail {
+			if result.Err != nil || result.Protocol != "socks5" || result.Detail != tt.wantDetail {
 				t.Fatalf("Run() = %#v, want detail %q", result, tt.wantDetail)
 			}
 		})
 	}
 }
 
-func socksServer(response [2]byte) func(net.Conn) error {
+func socks5Server(response [2]byte) func(net.Conn) error {
 	return func(connection net.Conn) error {
 		greeting := make([]byte, 5)
 		if _, err := io.ReadFull(connection, greeting); err != nil {
