@@ -18,6 +18,8 @@ scanner:
   dial_timeout: 1s
   # Zero disables the timeout for the whole scan.
   scan_timeout: 0s
+  # Periodic progress output at info level. Zero disables progress messages.
+  progress_interval: 5s
   # Available values: quiet, info, debug, trace.
   verbosity: quiet
 

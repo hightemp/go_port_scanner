@@ -74,6 +74,7 @@ func TestICMPPingerResolvesHostname(t *testing.T) {
 
 	connection := &fakePacketConnection{echoReply: true}
 	var lookupTarget string
+	var events []Event
 	pinger := &icmpPinger{
 		listen: func(string, string) (packetConnection, error) {
 			return connection, nil
@@ -85,6 +86,9 @@ func TestICMPPingerResolvesHostname(t *testing.T) {
 			lookupTarget = target
 			return []netip.Addr{netip.MustParseAddr("192.0.2.20")}, nil
 		},
+		report: func(event Event) {
+			events = append(events, event)
+		},
 	}
 	alive, err := pinger.Ping(context.Background(), "host.example", time.Second)
 	if err != nil || !alive {
@@ -92,6 +96,10 @@ func TestICMPPingerResolvesHostname(t *testing.T) {
 	}
 	if lookupTarget != "host.example" {
 		t.Errorf("lookup target = %q, want host.example", lookupTarget)
+	}
+	if len(events) != 1 || events[0].Kind != EventResolution ||
+		!reflect.DeepEqual(events[0].Addresses, []string{"192.0.2.20"}) {
+		t.Errorf("resolution events = %#v", events)
 	}
 }
 

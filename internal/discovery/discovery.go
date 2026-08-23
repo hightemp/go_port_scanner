@@ -36,6 +36,34 @@ type Pinger interface {
 	Ping(ctx context.Context, target string, timeout time.Duration) (bool, error)
 }
 
+// EventKind identifies a diagnostic host discovery event.
+type EventKind uint8
+
+const (
+	// EventResolution reports hostname resolution completion.
+	EventResolution EventKind = iota
+	// EventProbe reports one ICMP or TCP availability attempt.
+	EventProbe
+	// EventFallback reports a transition from ICMP to TCP.
+	EventFallback
+)
+
+// Event describes a diagnostic event emitted during host discovery.
+type Event struct {
+	Kind      EventKind
+	Target    string
+	Method    Strategy
+	Port      int
+	Addresses []string
+	Alive     bool
+	Detail    string
+	Duration  time.Duration
+	Err       error
+}
+
+// Reporter receives discovery events and may be called concurrently.
+type Reporter func(Event)
+
 // Config defines a host discovery worker pool.
 type Config struct {
 	Strategy Strategy
@@ -44,6 +72,7 @@ type Config struct {
 	Timeout  time.Duration
 	Dialer   Dialer
 	Pinger   Pinger
+	Reporter Reporter
 }
 
 // Result describes the availability of one target.
@@ -62,6 +91,7 @@ type Discoverer struct {
 	timeout  time.Duration
 	dialer   Dialer
 	pinger   Pinger
+	reporter Reporter
 }
 
 // New validates config and constructs a Discoverer.
@@ -92,7 +122,7 @@ func New(config Config) (*Discoverer, error) {
 	}
 	pinger := config.Pinger
 	if pinger == nil {
-		pinger = newICMPPinger()
+		pinger = newICMPPinger(config.Reporter)
 	}
 
 	return &Discoverer{
@@ -102,6 +132,7 @@ func New(config Config) (*Discoverer, error) {
 		timeout:  config.Timeout,
 		dialer:   dialer,
 		pinger:   pinger,
+		reporter: config.Reporter,
 	}, nil
 }
 
@@ -159,12 +190,12 @@ func (d *Discoverer) check(ctx context.Context, target string) Result {
 			result.Method = StrategyTCP
 		}
 	case StrategyICMP:
-		result.Alive, result.Err = d.pinger.Ping(ctx, target, d.timeout)
+		result.Alive, result.Err = d.checkICMP(ctx, target)
 		if result.Alive {
 			result.Method = StrategyICMP
 		}
 	case StrategyICMPThenTCP:
-		result.Alive, result.Err = d.pinger.Ping(ctx, target, d.timeout)
+		result.Alive, result.Err = d.checkICMP(ctx, target)
 		if result.Alive {
 			result.Method = StrategyICMP
 			return result
@@ -174,6 +205,13 @@ func (d *Discoverer) check(ctx context.Context, target string) Result {
 			result.Err = ctx.Err()
 			return result
 		}
+		d.report(Event{
+			Kind:   EventFallback,
+			Target: target,
+			Method: StrategyTCP,
+			Detail: "ICMP did not confirm reachability",
+			Err:    icmpError,
+		})
 		result.Alive, result.Err = d.checkTCP(ctx, target)
 		if result.Alive {
 			result.Method = StrategyTCP
@@ -184,9 +222,31 @@ func (d *Discoverer) check(ctx context.Context, target string) Result {
 	return result
 }
 
+func (d *Discoverer) checkICMP(ctx context.Context, target string) (bool, error) {
+	startedAt := time.Now()
+	alive, err := d.pinger.Ping(ctx, target, d.timeout)
+	detail := "no echo reply"
+	if alive {
+		detail = "echo reply"
+	} else if err != nil {
+		detail = "failed"
+	}
+	d.report(Event{
+		Kind:     EventProbe,
+		Target:   target,
+		Method:   StrategyICMP,
+		Alive:    alive,
+		Detail:   detail,
+		Duration: time.Since(startedAt),
+		Err:      err,
+	})
+	return alive, err
+}
+
 func (d *Discoverer) checkTCP(ctx context.Context, target string) (bool, error) {
 	var lastError error
 	for _, port := range d.ports {
+		startedAt := time.Now()
 		attemptContext, cancel := context.WithTimeout(ctx, d.timeout)
 		connection, err := d.dialer.DialContext(
 			attemptContext,
@@ -198,22 +258,83 @@ func (d *Discoverer) checkTCP(ctx context.Context, target string) (bool, error) 
 
 		if err == nil {
 			if closeErr := connection.Close(); closeErr != nil {
+				d.report(Event{
+					Kind:     EventProbe,
+					Target:   target,
+					Method:   StrategyTCP,
+					Port:     port,
+					Alive:    true,
+					Detail:   "connected",
+					Duration: time.Since(startedAt),
+					Err:      closeErr,
+				})
 				return true, fmt.Errorf("close TCP discovery connection: %w", closeErr)
 			}
+			d.report(Event{
+				Kind:     EventProbe,
+				Target:   target,
+				Method:   StrategyTCP,
+				Port:     port,
+				Alive:    true,
+				Detail:   "connected",
+				Duration: time.Since(startedAt),
+			})
 			return true, nil
 		}
 		if ctx.Err() != nil {
+			d.report(Event{
+				Kind:     EventProbe,
+				Target:   target,
+				Method:   StrategyTCP,
+				Port:     port,
+				Detail:   "canceled",
+				Duration: time.Since(startedAt),
+				Err:      ctx.Err(),
+			})
 			return false, ctx.Err()
 		}
 		if errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET) {
+			d.report(Event{
+				Kind:     EventProbe,
+				Target:   target,
+				Method:   StrategyTCP,
+				Port:     port,
+				Alive:    true,
+				Detail:   "connection refused",
+				Duration: time.Since(startedAt),
+				Err:      err,
+			})
 			return true, nil
 		}
 		if errors.Is(attemptError, context.DeadlineExceeded) || isTimeout(err) {
+			d.report(Event{
+				Kind:     EventProbe,
+				Target:   target,
+				Method:   StrategyTCP,
+				Port:     port,
+				Detail:   "timeout",
+				Duration: time.Since(startedAt),
+			})
 			continue
 		}
+		d.report(Event{
+			Kind:     EventProbe,
+			Target:   target,
+			Method:   StrategyTCP,
+			Port:     port,
+			Detail:   "failed",
+			Duration: time.Since(startedAt),
+			Err:      err,
+		})
 		lastError = err
 	}
 	return false, lastError
+}
+
+func (d *Discoverer) report(event Event) {
+	if d.reporter != nil {
+		d.reporter(event)
+	}
 }
 
 func isTimeout(err error) bool {

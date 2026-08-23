@@ -37,13 +37,26 @@ type Config struct {
 	Strategy              Strategy
 	Timeout               time.Duration
 	TLSInsecureSkipVerify bool
+	Reporter              Reporter
 }
+
+// Selection describes a proxy chosen for one connection attempt.
+type Selection struct {
+	Proxy    string
+	Strategy Strategy
+	Network  string
+	Target   string
+}
+
+// Reporter receives proxy selection events and may be called concurrently.
+type Reporter func(Selection)
 
 // Pool selects one configured proxy for every DialContext call.
 type Pool struct {
 	endpoints []*endpoint
 	strategy  Strategy
 	timeout   time.Duration
+	reporter  Reporter
 
 	mu     sync.Mutex
 	next   int
@@ -78,6 +91,7 @@ func New(config Config) (*Pool, error) {
 		endpoints: endpoints,
 		strategy:  config.Strategy,
 		timeout:   config.Timeout,
+		reporter:  config.Reporter,
 		active:    make([]int, len(endpoints)),
 	}, nil
 }
@@ -98,6 +112,14 @@ func (p *Pool) DialContext(ctx context.Context, network, address string) (net.Co
 	defer cancel()
 
 	index := p.acquire()
+	if p.reporter != nil {
+		p.reporter(Selection{
+			Proxy:    p.endpoints[index].label,
+			Strategy: p.strategy,
+			Network:  network,
+			Target:   address,
+		})
+	}
 	connection, err := p.endpoints[index].dialContext(dialContext, network, address)
 	if err != nil {
 		p.release(index)

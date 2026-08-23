@@ -24,6 +24,7 @@ scanner:
   max_targets: 500
   dial_timeout: 250ms
   scan_timeout: 30s
+  progress_interval: 2s
   verbosity: debug
 discovery:
   enabled: true
@@ -73,6 +74,9 @@ probes:
 	}
 	if got.Scanner.ScanTimeout.Duration != 30*time.Second {
 		t.Errorf("ScanTimeout = %v, want 30s", got.Scanner.ScanTimeout.Duration)
+	}
+	if got.Scanner.ProgressInterval.Duration != 2*time.Second {
+		t.Errorf("ProgressInterval = %v, want 2s", got.Scanner.ProgressInterval.Duration)
 	}
 	if got.VerbosityLevel() != 2 {
 		t.Errorf("VerbosityLevel() = %d, want 2", got.VerbosityLevel())
@@ -136,6 +140,7 @@ func TestDecodeValidation(t *testing.T) {
 		{name: "target expansion exceeds limit", yaml: "targets: [192.0.2.0/30]\nscanner: {max_targets: 3}\n"},
 		{name: "zero dial timeout", yaml: "scanner: {dial_timeout: 0s}\n"},
 		{name: "negative scan timeout", yaml: "scanner: {scan_timeout: -1s}\n"},
+		{name: "negative progress interval", yaml: "scanner: {progress_interval: -1s}\n"},
 		{name: "unknown discovery strategy", yaml: "discovery: {strategy: unknown}\n"},
 		{name: "zero discovery workers", yaml: "discovery: {workers: 0}\n"},
 		{name: "zero discovery timeout", yaml: "discovery: {timeout: 0s}\n"},

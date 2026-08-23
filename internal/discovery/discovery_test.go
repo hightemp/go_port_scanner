@@ -219,6 +219,40 @@ func TestDiscoverCancellation(t *testing.T) {
 	}
 }
 
+func TestDiscoverReportsAttemptsAndFallback(t *testing.T) {
+	t.Parallel()
+
+	var events []Event
+	discoverer, err := New(Config{
+		Strategy: StrategyICMPThenTCP,
+		Ports:    []int{443},
+		Workers:  1,
+		Timeout:  time.Second,
+		Dialer: &fakeDialer{errors: map[string]error{
+			"host:443": syscall.ECONNREFUSED,
+		}},
+		Pinger: &fakePinger{},
+		Reporter: func(event Event) {
+			events = append(events, event)
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	results, err := discoverer.Discover(context.Background(), []string{"host"})
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+	if !results[0].Alive || results[0].Method != StrategyTCP {
+		t.Errorf("Discover() result = %#v, want reachable via TCP", results[0])
+	}
+	if len(events) != 3 || events[0].Kind != EventProbe || events[0].Method != StrategyICMP ||
+		events[1].Kind != EventFallback || events[2].Kind != EventProbe ||
+		events[2].Method != StrategyTCP || events[2].Detail != "connection refused" {
+		t.Errorf("events = %#v, want ICMP, fallback, TCP refused", events)
+	}
+}
+
 func TestDiscoverRejectsEmptyTargets(t *testing.T) {
 	t.Parallel()
 

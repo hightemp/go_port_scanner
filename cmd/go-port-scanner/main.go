@@ -64,6 +64,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			Strategy:              proxypool.Strategy(configuration.Proxy.Strategy),
 			Timeout:               configuration.Scanner.DialTimeout.Duration,
 			TLSInsecureSkipVerify: configuration.Proxy.TLSInsecureSkipVerify,
+			Reporter: func(selection proxypool.Selection) {
+				logger.Tracef(
+					"Selected proxy %s using %s for %s %s\n",
+					selection.Proxy,
+					selection.Strategy,
+					selection.Network,
+					selection.Target,
+				)
+			},
 		})
 		if err != nil {
 			return fmt.Errorf("configure proxy pool: %w", err)
@@ -74,6 +83,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 
 	if configuration.Discovery.Enabled &&
 		configuration.Discovery.Strategy != appconfig.DiscoveryStrategyNone {
+		discoveryStartedAt := time.Now()
 		logger.Infof(
 			"Discovering %d target(s) with %s strategy and %d workers\n",
 			len(targets),
@@ -86,6 +96,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			Workers:  configuration.Discovery.Workers,
 			Timeout:  configuration.Discovery.Timeout.Duration,
 			Dialer:   scanDialer,
+			Reporter: newDiscoveryReporter(logger),
 		})
 		if err != nil {
 			return fmt.Errorf("configure host discovery: %w", err)
@@ -95,34 +106,17 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return fmt.Errorf("run host discovery: %w", err)
 		}
 
-		reachableTargets := make([]string, 0, len(targets))
-		var firstDiscoveryError error
-		for _, result := range results {
-			if result.Alive {
-				reachableTargets = append(reachableTargets, result.Target)
-				logger.Debugf("Host %s is reachable via %s\n", result.Target, result.Method)
-				if result.Err != nil {
-					logger.Debugf("Host discovery cleanup for %s failed: %v\n", result.Target, result.Err)
-				}
-				continue
-			}
-			if result.Err != nil {
-				if firstDiscoveryError == nil {
-					firstDiscoveryError = result.Err
-				}
-				logger.Debugf("Skipping target %s after discovery error: %v\n", result.Target, result.Err)
-				continue
-			}
-			logger.Debugf("Skipping unreachable target %s\n", result.Target)
-		}
-		if len(reachableTargets) == 0 {
-			if firstDiscoveryError != nil {
-				return fmt.Errorf("host discovery found no reachable targets: %w", firstDiscoveryError)
-			}
-			return errors.New("host discovery found no reachable targets")
+		reachableTargets, err := filterDiscoveryResults(logger, results)
+		logger.Infof(
+			"Host discovery completed in %v: %d reachable, %d unavailable\n",
+			time.Since(discoveryStartedAt),
+			len(reachableTargets),
+			len(results)-len(reachableTargets),
+		)
+		if err != nil {
+			return err
 		}
 		targets = reachableTargets
-		logger.Infof("Host discovery completed: %d target(s) reachable\n", len(targets))
 	}
 
 	logger.Infof(
@@ -159,47 +153,32 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	logger.Debugf("Starting %d workers...\n", portScanner.Workers())
 	logger.Debugf("Sending %d checks to workers...\n", portScanner.Checks())
 
-	for event := range portScanner.Scan(scanContext) {
-		switch event.Kind {
-		case scanner.EventChecking:
-			logger.Tracef("Checking %s port %d...\n", event.Host, event.Port)
-		case scanner.EventOpen:
-			logger.Printf("%s\n", formatOpenEvent(event, len(targets) > 1))
-			logger.Debugf(
-				"Connection established to %s port %d in %v\n",
-				event.Host,
-				event.Port,
-				event.Duration,
-			)
-			for _, result := range event.Probes {
-				if result.Err != nil {
-					logger.Debugf(
-						"%s handshake with %s port %d failed in %v: %v\n",
-						result.Protocol,
-						event.Host,
-						event.Port,
-						result.Duration,
-						result.Err,
-					)
-					continue
-				}
-				logger.Debugf(
-					"%s handshake with %s port %d succeeded in %v: %s\n",
-					result.Protocol,
-					event.Host,
-					event.Port,
-					result.Duration,
-					result.Detail,
-				)
+	scanStartedAt := time.Now()
+	statistics := newScanStats(portScanner.Checks())
+	var progressTicker *time.Ticker
+	var progress <-chan time.Time
+	if configuration.Scanner.ProgressInterval.Duration > 0 {
+		progressTicker = time.NewTicker(configuration.Scanner.ProgressInterval.Duration)
+		progress = progressTicker.C
+		defer progressTicker.Stop()
+	}
+
+	events := portScanner.Scan(scanContext)
+	for events != nil {
+		select {
+		case event, open := <-events:
+			if !open {
+				events = nil
+				continue
 			}
-			if event.Err != nil {
-				logger.Debugf("Could not close connection to %s port %d: %v\n", event.Host, event.Port, event.Err)
-			}
-		case scanner.EventClosed:
-			logger.Tracef("%s port %d is closed (%v)\n", event.Host, event.Port, event.Err)
+			statistics.observe(event)
+			handleScanEvent(logger, event, len(targets) > 1)
+		case <-progress:
+			statistics.logProgress(logger, time.Since(scanStartedAt))
 		}
 	}
 
+	statistics.logSummary(logger, time.Since(scanStartedAt))
 	if err := scanContext.Err(); err != nil {
 		return fmt.Errorf("scan interrupted: %w", err)
 	}
@@ -210,6 +189,47 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	return nil
+}
+
+func handleScanEvent(logger *logging.Logger, event scanner.Event, multipleTargets bool) {
+	switch event.Kind {
+	case scanner.EventChecking:
+		logger.Tracef("Checking %s port %d...\n", event.Host, event.Port)
+	case scanner.EventOpen:
+		logger.Printf("%s\n", formatOpenEvent(event, multipleTargets))
+		logger.Debugf(
+			"Connection established to %s port %d in %v\n",
+			event.Host,
+			event.Port,
+			event.Duration,
+		)
+		for _, result := range event.Probes {
+			if result.Err != nil {
+				logger.Debugf(
+					"%s handshake with %s port %d failed in %v: %v\n",
+					result.Protocol,
+					event.Host,
+					event.Port,
+					result.Duration,
+					result.Err,
+				)
+				continue
+			}
+			logger.Debugf(
+				"%s handshake with %s port %d succeeded in %v: %s\n",
+				result.Protocol,
+				event.Host,
+				event.Port,
+				result.Duration,
+				result.Detail,
+			)
+		}
+		if event.Err != nil {
+			logger.Debugf("Could not close connection to %s port %d: %v\n", event.Host, event.Port, event.Err)
+		}
+	case scanner.EventClosed:
+		logger.Tracef("%s port %d is closed (%v)\n", event.Host, event.Port, event.Err)
+	}
 }
 
 func loadConfig(options cli.Options) (appconfig.Config, error) {

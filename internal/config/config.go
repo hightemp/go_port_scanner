@@ -126,11 +126,12 @@ func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 
 // Scanner contains worker, timeout, and output settings.
 type Scanner struct {
-	Workers     int       `yaml:"workers"`
-	MaxTargets  int       `yaml:"max_targets"`
-	DialTimeout Duration  `yaml:"dial_timeout"`
-	ScanTimeout Duration  `yaml:"scan_timeout"`
-	Verbosity   Verbosity `yaml:"verbosity"`
+	Workers          int       `yaml:"workers"`
+	MaxTargets       int       `yaml:"max_targets"`
+	DialTimeout      Duration  `yaml:"dial_timeout"`
+	ScanTimeout      Duration  `yaml:"scan_timeout"`
+	ProgressInterval Duration  `yaml:"progress_interval"`
+	Verbosity        Verbosity `yaml:"verbosity"`
 }
 
 // Discovery contains optional host availability checks performed before scanning.
@@ -211,11 +212,12 @@ func Default() Config {
 		Targets: []string{"localhost"},
 		Ports:   []PortRange{{Start: 1, End: maxPort}},
 		Scanner: Scanner{
-			Workers:     defaultWorkers,
-			MaxTargets:  defaultMaxTargets,
-			DialTimeout: Duration{Duration: time.Second},
-			ScanTimeout: Duration{},
-			Verbosity:   VerbosityQuiet,
+			Workers:          defaultWorkers,
+			MaxTargets:       defaultMaxTargets,
+			DialTimeout:      Duration{Duration: time.Second},
+			ScanTimeout:      Duration{},
+			ProgressInterval: Duration{Duration: 5 * time.Second},
+			Verbosity:        VerbosityQuiet,
 		},
 		Discovery: Discovery{
 			Enabled:  false,
@@ -313,6 +315,9 @@ func (c Config) Validate() error {
 	}
 	if c.Scanner.ScanTimeout.Duration < 0 {
 		return errors.New("scanner.scan_timeout must not be negative")
+	}
+	if c.Scanner.ProgressInterval.Duration < 0 {
+		return errors.New("scanner.progress_interval must not be negative")
 	}
 	if err := c.validateDiscovery(); err != nil {
 		return err

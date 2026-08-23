@@ -119,6 +119,7 @@ scanner:
   max_targets: 65536
   dial_timeout: 750ms
   scan_timeout: 2m
+  progress_interval: 5s
   verbosity: info
 
 discovery:
@@ -175,6 +176,9 @@ Available strategies:
 `discovery.timeout` applies to each ICMP request or TCP port attempt. Discovery
 uses its own bounded worker pool and preserves the configured target order.
 The TCP discovery ports do not need to be present in the main `ports` list.
+At info level, every unavailable host is logged before it is skipped. Debug
+level additionally reports DNS resolution, each ICMP/TCP discovery attempt,
+its duration and error, and every ICMP-to-TCP fallback.
 
 ICMP may be blocked by a firewall. Unprivileged ICMP is supported natively on
 Linux and macOS; raw ICMP fallback may require elevated privileges and is
@@ -276,6 +280,12 @@ TCP: 5432 [postgresql: failed (unexpected PostgreSQL SSL response 0x45)]
 For multiple targets the output includes the address, for example
 `TCP: 192.0.2.10:22`. Info mode adds lifecycle messages, debug mode adds timing
 and handshake details, and trace mode reports every attempted and closed port.
+When `scanner.progress_interval` is greater than zero, info mode periodically
+prints completion percentage, checks per second, open-port count, and ETA. A
+final summary breaks failed checks down into timeouts, refused connections,
+unreachable networks/hosts, and other errors. Trace mode also reports the proxy
+selected for each connection; use it carefully because large scans can produce
+millions of log lines.
 
 ## Development
 

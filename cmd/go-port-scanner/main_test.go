@@ -142,8 +142,10 @@ discovery:
 	}
 	for _, want := range []string{
 		"Discovering 1 target(s) with tcp strategy",
-		"Host discovery completed: 1 target(s) reachable",
+		"Host discovery completed in",
+		"1 reachable, 0 unavailable",
 		"TCP: " + port,
+		"Scan summary: completed=1/1, open=1",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("run() output = %q, want it to contain %q", stdout.String(), want)

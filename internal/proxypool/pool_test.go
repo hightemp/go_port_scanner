@@ -205,6 +205,7 @@ func TestHTTPProxyDial(t *testing.T) {
 			t.Parallel()
 
 			observed := make(chan string, 1)
+			selected := make(chan Selection, 1)
 			server := tt.start(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				if request.Method != http.MethodConnect {
 					writer.WriteHeader(http.StatusMethodNotAllowed)
@@ -225,6 +226,9 @@ func TestHTTPProxyDial(t *testing.T) {
 				Strategy:              StrategyRoundRobin,
 				Timeout:               time.Second,
 				TLSInsecureSkipVerify: tt.insecure,
+				Reporter: func(selection Selection) {
+					selected <- selection
+				},
 			})
 			if err != nil {
 				t.Fatalf("New() error = %v", err)
@@ -236,6 +240,11 @@ func TestHTTPProxyDial(t *testing.T) {
 			}
 			if err := connection.Close(); err != nil {
 				t.Errorf("connection.Close() error = %v", err)
+			}
+			selection := <-selected
+			if selection.Strategy != StrategyRoundRobin || selection.Network != "tcp" ||
+				selection.Target != "example.com:443" || strings.Contains(selection.Proxy, "alice") {
+				t.Errorf("selection = %#v", selection)
 			}
 
 			select {

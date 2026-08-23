@@ -30,15 +30,17 @@ type packetConnection interface {
 type icmpPinger struct {
 	listen func(network, address string) (packetConnection, error)
 	lookup func(ctx context.Context, network, host string) ([]netip.Addr, error)
+	report Reporter
 	seq    atomic.Uint32
 }
 
-func newICMPPinger() *icmpPinger {
+func newICMPPinger(reporter Reporter) *icmpPinger {
 	return &icmpPinger{
 		listen: func(network, address string) (packetConnection, error) {
 			return icmp.ListenPacket(network, address)
 		},
 		lookup: net.DefaultResolver.LookupNetIP,
+		report: reporter,
 	}
 }
 
@@ -67,14 +69,44 @@ func (p *icmpPinger) resolve(ctx context.Context, target string) ([]netip.Addr, 
 		return []netip.Addr{address}, nil
 	}
 
+	startedAt := time.Now()
 	addresses, err := p.lookup(ctx, "ip", target)
 	if err != nil {
+		p.reportResolution(Event{
+			Kind:     EventResolution,
+			Target:   target,
+			Duration: time.Since(startedAt),
+			Err:      err,
+		})
 		return nil, fmt.Errorf("resolve ICMP target %q: %w", target, err)
 	}
 	if len(addresses) == 0 {
-		return nil, fmt.Errorf("resolve ICMP target %q: no addresses", target)
+		err := fmt.Errorf("resolve ICMP target %q: no addresses", target)
+		p.reportResolution(Event{
+			Kind:     EventResolution,
+			Target:   target,
+			Duration: time.Since(startedAt),
+			Err:      err,
+		})
+		return nil, err
 	}
+	resolved := make([]string, 0, len(addresses))
+	for _, address := range addresses {
+		resolved = append(resolved, address.String())
+	}
+	p.reportResolution(Event{
+		Kind:      EventResolution,
+		Target:    target,
+		Addresses: resolved,
+		Duration:  time.Since(startedAt),
+	})
 	return addresses, nil
+}
+
+func (p *icmpPinger) reportResolution(event Event) {
+	if p.report != nil {
+		p.report(event)
+	}
 }
 
 func (p *icmpPinger) pingAddress(
