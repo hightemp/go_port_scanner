@@ -372,6 +372,9 @@ probes:
   socks:
     enabled: true
     ports: [1080]
+  dns:
+    enabled: true
+    ports: [53]
   postgresql:
     enabled: true
     ports: [5432]
@@ -390,12 +393,20 @@ port is also present in the top-level `ports` scan list.
 | Remote access | `ssh` | 22 |
 | FTP | `ftp`, `ftps_explicit`, `ftps_implicit` | 21, 21, 990 |
 | Web/proxies | `http`, `https`, `socks` | 80, 443, 1080 |
+| DNS | `dns` | 53/TCP |
 | Databases/search | `postgresql`, `mysql`, `mongodb`, `mssql`, `cassandra`, `elasticsearch` | 5432, 3306, 27017, 1433, 9042, 9200 |
 | Brokers/queues | `rabbitmq`, `kafka`, `nats`, `mqtt` | 5672, 9092, 4222, 1883 |
 | Key/value stores | `redis`, `memcached`, `etcd` | 6379, 11211, 2379 |
 | Windows remote access | `rdp`, `smb`, `netbios`, `msrpc` | 3389, 445, 139, 135 |
 | Active Directory | `kerberos`, `ldap`, `ldaps` | 88, 389/3268, 636/3269 |
 | Windows management | `winrm`, `winrm_https` | 5985, 5986 |
+
+The DNS probe uses DNS-over-TCP framing and sends a root `NS` query without
+requesting recursion. It verifies the transaction ID, response flag, opcode,
+question, and message length. Any structurally valid DNS response confirms the
+protocol, including `REFUSED` or `SERVFAIL`; the result reports the response
+code and section counts. This scanner remains TCP-only, so the probe does not
+test UDP port 53.
 
 The HTTP probe sends `HEAD /` and accepts any valid HTTP response. HTTPS first
 performs a TLS handshake and then sends the same request. The `socks` switch
@@ -427,6 +438,7 @@ the same line:
 
 ```text
 TCP: 22 [ssh: SSH-2.0-OpenSSH_9.9]
+TCP: 53 [dns: DNS-over-TCP response (rcode=NOERROR, answers=13, authority=0, additional=1)]
 TCP: 6379 [redis: PONG]
 TCP: 5432 [postgresql: failed (unexpected PostgreSQL SSL response 0x45)]
 ```

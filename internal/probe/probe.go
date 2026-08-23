@@ -149,6 +149,8 @@ func newProtocol(name string, tlsInsecureSkipVerify bool) (Prober, error) {
 		return httpProbe{}, nil
 	case "https":
 		return httpsProbe{tlsInsecureSkipVerify: tlsInsecureSkipVerify}, nil
+	case "dns":
+		return dnsProbe{}, nil
 	case "postgresql":
 		return postgresqlProbe{}, nil
 	case "mysql":

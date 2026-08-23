@@ -335,12 +335,12 @@ func TestRegistry(t *testing.T) {
 	t.Parallel()
 
 	definitionNames := []string{
-		"ssh", "ftp", "ftps_explicit", "ftps_implicit", "http", "https", "socks", "postgresql", "mysql", "mongodb", "mssql",
+		"ssh", "ftp", "ftps_explicit", "ftps_implicit", "http", "https", "socks", "dns", "postgresql", "mysql", "mongodb", "mssql",
 		"cassandra", "elasticsearch", "rabbitmq", "kafka", "nats", "mqtt", "redis", "memcached", "etcd",
 		"rdp", "smb", "netbios", "msrpc", "kerberos", "ldap", "ldaps", "winrm", "winrm_https",
 	}
 	wantProtocolNames := []string{
-		"ssh", "ftp", "ftps_explicit", "ftps_implicit", "http", "https", "socks5", "socks4", "postgresql", "mysql", "mongodb", "mssql",
+		"ssh", "ftp", "ftps_explicit", "ftps_implicit", "http", "https", "socks5", "socks4", "dns", "postgresql", "mysql", "mongodb", "mssql",
 		"cassandra", "elasticsearch", "rabbitmq", "kafka", "nats", "mqtt", "redis", "memcached", "etcd",
 		"rdp", "smb", "netbios", "msrpc", "kerberos", "ldap", "ldaps", "winrm", "winrm_https",
 	}

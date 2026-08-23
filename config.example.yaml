@@ -106,6 +106,13 @@ probes:
     enabled: true
     ports: [1080]
 
+  # Sends a root NS query using DNS-over-TCP without requesting recursion.
+  # Any structurally valid DNS response, including REFUSED or SERVFAIL,
+  # confirms that the service speaks DNS.
+  dns:
+    enabled: true
+    ports: [53]
+
   postgresql:
     enabled: true
     ports: [5432]

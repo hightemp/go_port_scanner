@@ -264,8 +264,8 @@ func TestProbeRegistryAndOutputFormatting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newProbeRegistry() error = %v", err)
 	}
-	if registry.Count() != 32 {
-		t.Errorf("Registry.Count() = %d, want 32", registry.Count())
+	if registry.Count() != 33 {
+		t.Errorf("Registry.Count() = %d, want 33", registry.Count())
 	}
 
 	event := scanner.Event{

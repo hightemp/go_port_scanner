@@ -61,6 +61,9 @@ probes:
   socks:
     enabled: true
     ports: [1080]
+  dns:
+    enabled: true
+    ports: [53, 5353]
 report:
   enabled: true
   only_working: true
@@ -118,15 +121,16 @@ report:
 	}
 	if !reflect.DeepEqual(expandPortRanges(got.Probes.HTTP.Ports), []int{80, 8080, 8081}) ||
 		!reflect.DeepEqual(expandPortRanges(got.Probes.HTTPS.Ports), []int{443, 8443}) ||
-		!reflect.DeepEqual(expandPortRanges(got.Probes.SOCKS.Ports), []int{1080}) {
-		t.Errorf("web/proxy probe ports = %#v", got.Probes)
+		!reflect.DeepEqual(expandPortRanges(got.Probes.SOCKS.Ports), []int{1080}) ||
+		!reflect.DeepEqual(expandPortRanges(got.Probes.DNS.Ports), []int{53, 5353}) {
+		t.Errorf("web/proxy/DNS probe ports = %#v", got.Probes)
 	}
 	if !got.Report.Enabled || !got.Report.OnlyWorking || got.Report.Destination != "reports/scan.jsonl" ||
 		got.Report.Format != ReportFormatJSONL {
 		t.Errorf("Report = %#v, want enabled working-only JSONL report", got.Report)
 	}
 	definitions := got.EnabledProbeDefinitions()
-	if len(definitions) != 28 || definitions[0].Name != "ssh" ||
+	if len(definitions) != 29 || definitions[0].Name != "ssh" ||
 		!reflect.DeepEqual(definitions[0].Ports, []int{22, 2200, 2201}) {
 		t.Errorf("EnabledProbeDefinitions() = %#v", definitions)
 	}
@@ -280,13 +284,14 @@ func TestExampleConfiguration(t *testing.T) {
 	}
 	if !configuration.Probes.SSH.Enabled || !configuration.Probes.FTPSExplicit.Enabled ||
 		!configuration.Probes.HTTP.Enabled || !configuration.Probes.HTTPS.Enabled ||
-		!configuration.Probes.SOCKS.Enabled {
-		t.Errorf("example protocol switches = %#v, want SSH, FTP, HTTP, HTTPS, and SOCKS enabled", configuration.Probes)
+		!configuration.Probes.SOCKS.Enabled || !configuration.Probes.DNS.Enabled {
+		t.Errorf("example protocol switches = %#v, want SSH, FTP, HTTP, HTTPS, SOCKS, and DNS enabled", configuration.Probes)
 	}
 	if !reflect.DeepEqual(expandPortRanges(configuration.Probes.HTTP.Ports), []int{80}) ||
 		!reflect.DeepEqual(expandPortRanges(configuration.Probes.HTTPS.Ports), []int{443}) ||
-		!reflect.DeepEqual(expandPortRanges(configuration.Probes.SOCKS.Ports), []int{1080}) {
-		t.Errorf("example web/proxy probe ports = %#v", configuration.Probes)
+		!reflect.DeepEqual(expandPortRanges(configuration.Probes.SOCKS.Ports), []int{1080}) ||
+		!reflect.DeepEqual(expandPortRanges(configuration.Probes.DNS.Ports), []int{53}) {
+		t.Errorf("example web/proxy/DNS probe ports = %#v", configuration.Probes)
 	}
 	if !reflect.DeepEqual(expandPortRanges(configuration.Probes.LDAP.Ports), []int{389, 3268}) ||
 		!reflect.DeepEqual(expandPortRanges(configuration.Probes.WinRMHTTPS.Ports), []int{5986}) {
