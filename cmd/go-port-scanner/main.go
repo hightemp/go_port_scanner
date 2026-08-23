@@ -41,12 +41,16 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	targets, err := configuration.ExpandedTargets()
+	if err != nil {
+		return fmt.Errorf("expand targets: %w", err)
+	}
 	ports := configuration.ExpandedPorts()
 
 	logger := logging.New(stdout, logging.Level(configuration.VerbosityLevel()))
 	logger.Infof(
 		"Starting scan of %d target(s), %d port(s) with %d workers\n",
-		len(configuration.Targets),
+		len(targets),
 		len(ports),
 		configuration.Scanner.Workers,
 	)
@@ -75,7 +79,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 
 	portScanner, err := scanner.New(scanner.Config{
-		Targets:     configuration.Targets,
+		Targets:     targets,
 		Ports:       ports,
 		Workers:     configuration.Scanner.Workers,
 		DialTimeout: configuration.Scanner.DialTimeout.Duration,
@@ -106,7 +110,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		case scanner.EventChecking:
 			logger.Tracef("Checking %s port %d...\n", event.Host, event.Port)
 		case scanner.EventOpen:
-			logger.Printf("%s\n", formatOpenEvent(event, len(configuration.Targets) > 1))
+			logger.Printf("%s\n", formatOpenEvent(event, len(targets) > 1))
 			logger.Debugf(
 				"Connection established to %s port %d in %v\n",
 				event.Host,

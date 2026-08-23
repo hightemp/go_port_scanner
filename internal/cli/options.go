@@ -27,7 +27,7 @@ func Parse(args []string, output io.Writer) (Options, error) {
 	flags.SetOutput(output)
 
 	configPath := flags.String("config", config.DefaultPath, "Path to YAML config (empty uses built-in defaults)")
-	host := flags.String("host", "localhost", "Override config targets with one hostname or IP address")
+	host := flags.String("host", "localhost", "Override config targets with one hostname, IP address, CIDR, or IP range")
 	workers := flags.Int("workers", 10000, "Override number of concurrent workers")
 	startPort := flags.Int("start", 1, "Override start port")
 	endPort := flags.Int("end", 65535, "Override end port")

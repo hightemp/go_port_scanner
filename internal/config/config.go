@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	maxPort        = 65535
-	defaultWorkers = 10000
+	maxPort           = 65535
+	defaultWorkers    = 10000
+	defaultMaxTargets = 65536
 )
 
 // DefaultPath is the configuration file loaded when -config is not specified.
@@ -113,6 +114,7 @@ func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 // Scanner contains worker, timeout, and output settings.
 type Scanner struct {
 	Workers     int       `yaml:"workers"`
+	MaxTargets  int       `yaml:"max_targets"`
 	DialTimeout Duration  `yaml:"dial_timeout"`
 	ScanTimeout Duration  `yaml:"scan_timeout"`
 	Verbosity   Verbosity `yaml:"verbosity"`
@@ -187,6 +189,7 @@ func Default() Config {
 		Ports:   []PortRange{{Start: 1, End: maxPort}},
 		Scanner: Scanner{
 			Workers:     defaultWorkers,
+			MaxTargets:  defaultMaxTargets,
 			DialTimeout: Duration{Duration: time.Second},
 			ScanTimeout: Duration{},
 			Verbosity:   VerbosityQuiet,
@@ -250,6 +253,12 @@ func (c Config) Validate() error {
 		if strings.TrimSpace(target) == "" {
 			return fmt.Errorf("targets[%d] must not be empty", index)
 		}
+	}
+	if c.Scanner.MaxTargets < 1 {
+		return errors.New("scanner.max_targets must be greater than zero")
+	}
+	if _, err := c.ExpandedTargets(); err != nil {
+		return err
 	}
 	if len(c.Ports) == 0 {
 		return errors.New("ports must not be empty")

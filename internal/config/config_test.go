@@ -21,6 +21,7 @@ ports:
   - 81-83
 scanner:
   workers: 25
+  max_targets: 500
   dial_timeout: 250ms
   scan_timeout: 30s
   verbosity: debug
@@ -57,6 +58,9 @@ probes:
 	}
 	if got.Scanner.Workers != 25 {
 		t.Errorf("Workers = %d, want 25", got.Scanner.Workers)
+	}
+	if got.Scanner.MaxTargets != 500 {
+		t.Errorf("MaxTargets = %d, want 500", got.Scanner.MaxTargets)
 	}
 	if got.Scanner.DialTimeout.Duration != 250*time.Millisecond {
 		t.Errorf("DialTimeout = %v, want 250ms", got.Scanner.DialTimeout.Duration)
@@ -113,6 +117,12 @@ func TestDecodeValidation(t *testing.T) {
 		{name: "reversed range", yaml: "ports: [100-80]\n"},
 		{name: "invalid range", yaml: "ports: [one-two]\n"},
 		{name: "zero workers", yaml: "scanner: {workers: 0}\n"},
+		{name: "zero max targets", yaml: "scanner: {max_targets: 0}\n"},
+		{name: "invalid CIDR", yaml: "targets: [192.0.2.0/33]\n"},
+		{name: "reversed IP range", yaml: "targets: [192.0.2.20-192.0.2.10]\n"},
+		{name: "mixed IP range", yaml: "targets: [192.0.2.1-2001:db8::1]\n"},
+		{name: "invalid short IP range", yaml: "targets: [192.0.2.1-256]\n"},
+		{name: "target expansion exceeds limit", yaml: "targets: [192.0.2.0/30]\nscanner: {max_targets: 3}\n"},
 		{name: "zero dial timeout", yaml: "scanner: {dial_timeout: 0s}\n"},
 		{name: "negative scan timeout", yaml: "scanner: {scan_timeout: -1s}\n"},
 		{name: "unknown verbosity", yaml: "scanner: {verbosity: verbose}\n"},

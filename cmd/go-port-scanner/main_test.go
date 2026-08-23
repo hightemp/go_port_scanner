@@ -44,7 +44,7 @@ func TestRunFindsOpenPort(t *testing.T) {
 	var stderr bytes.Buffer
 	args := []string{
 		"-config", "",
-		"-host", "127.0.0.1",
+		"-host", "127.0.0.1/32",
 		"-workers", "2",
 		"-start", port,
 		"-end", port,

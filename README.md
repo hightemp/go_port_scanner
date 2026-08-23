@@ -9,7 +9,8 @@
 
 A concurrent TCP port scanner with YAML configuration, optional proxy rotation,
 and lightweight application-protocol handshakes. It supports multiple targets,
-IPv4/IPv6 addresses, hostnames, individual ports, and inclusive port ranges.
+IPv4/IPv6 addresses, CIDR subnets, IP ranges, hostnames, individual ports, and
+inclusive port ranges.
 
 > Use this tool only against systems you own or are explicitly authorized to
 > test.
@@ -18,7 +19,8 @@ IPv4/IPv6 addresses, hostnames, individual ports, and inclusive port ranges.
 
 - Concurrent TCP scanning with a configurable worker pool.
 - Per-connection and whole-scan timeouts.
-- Multiple targets and deduplicated port ranges.
+- Multiple hostnames, individual IPs, CIDR subnets, and inclusive IP ranges.
+- Deduplication of overlapping target specifications and port ranges.
 - HTTP, HTTPS CONNECT, and SOCKS5 proxy pools.
 - `round_robin`, `random`, and `least_connections` proxy selection.
 - Optional protocol handshakes for remote access, databases, brokers,
@@ -78,7 +80,7 @@ load the built-in defaults.
 | Option | Description | Default |
 | --- | --- | --- |
 | `-config PATH` | YAML configuration path; an empty value uses built-in defaults | `config.yaml` |
-| `-host HOST` | Replace all configured targets with one hostname or IP | `localhost` |
+| `-host TARGET` | Replace all configured targets with one hostname, IP, CIDR, or IP range | `localhost` |
 | `-start PORT` | Replace the configured port list with a range starting here | `1` |
 | `-end PORT` | Replace the configured port list with a range ending here | `65535` |
 | `-workers N` | Number of concurrent workers | `10000` |
@@ -102,6 +104,9 @@ values are rejected at startup.
 targets:
   - 127.0.0.1
   - example.com
+  - 192.168.1.0/24
+  - 192.168.2.10-192.168.2.50
+  - 2001:db8::/126
 
 ports:
   - 22
@@ -110,15 +115,31 @@ ports:
 
 scanner:
   workers: 500
+  max_targets: 65536
   dial_timeout: 750ms
   scan_timeout: 2m
   verbosity: info
 ```
 
-Targets may be IPv4 addresses, IPv6 addresses, or hostnames. Ports accept
-individual values and inclusive ranges. Overlapping ranges are deduplicated in
-their configured order. The effective worker count never exceeds the total
-number of target/port checks.
+Each `targets` entry may use one of these forms:
+
+- a hostname: `example.com`;
+- one IPv4 or IPv6 address: `192.168.1.10` or `2001:db8::1`;
+- a CIDR subnet: `192.168.1.0/24` or `2001:db8::/126`;
+- an inclusive range: `192.168.1.10-192.168.1.50` or
+  `2001:db8::1-2001:db8::ff`;
+- an IPv4 range with a shortened last octet: `192.168.1.10-50`.
+
+All addresses in a CIDR are scanned, including the IPv4 network and broadcast
+addresses. Overlapping subnets, ranges, and individual addresses are
+deduplicated in their configured order. `scanner.max_targets` limits the number
+of unique targets after expansion and defaults to `65536`, preventing an
+accidentally broad subnet such as an IPv6 `/64` from exhausting memory. Narrow
+the target list or raise the limit explicitly when a larger scan is intended.
+
+Ports accept individual values and inclusive ranges. Overlapping port ranges
+are also deduplicated in their configured order. The effective worker count
+never exceeds the total number of target/port checks.
 
 ### Proxy pool
 

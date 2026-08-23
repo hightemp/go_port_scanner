@@ -1,6 +1,11 @@
-# Targets may contain IPv4, IPv6, or hostnames.
+# Targets may contain hostnames, individual IPv4/IPv6 addresses, CIDR
+# subnets, or inclusive IP ranges. CIDRs include every address in the subnet.
 targets:
   - localhost
+  # - 192.168.1.0/24
+  # - 192.168.2.10-192.168.2.50
+  # - 192.168.3.10-50
+  # - 2001:db8::/126
 
 # A port may be a single number or an inclusive range.
 ports:
@@ -8,6 +13,8 @@ ports:
 
 scanner:
   workers: 10000
+  # Maximum unique targets after expanding CIDRs and ranges.
+  max_targets: 65536
   dial_timeout: 1s
   # Zero disables the timeout for the whole scan.
   scan_timeout: 0s
