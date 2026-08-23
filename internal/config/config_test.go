@@ -59,6 +59,7 @@ probes:
     ports: [1080]
 report:
   enabled: true
+  only_working: true
   destination: reports/scan.jsonl
   format: jsonl
 `
@@ -112,9 +113,9 @@ report:
 		!reflect.DeepEqual(expandPortRanges(got.Probes.SOCKS.Ports), []int{1080}) {
 		t.Errorf("web/proxy probe ports = %#v", got.Probes)
 	}
-	if !got.Report.Enabled || got.Report.Destination != "reports/scan.jsonl" ||
+	if !got.Report.Enabled || !got.Report.OnlyWorking || got.Report.Destination != "reports/scan.jsonl" ||
 		got.Report.Format != ReportFormatJSONL {
-		t.Errorf("Report = %#v, want enabled JSONL report", got.Report)
+		t.Errorf("Report = %#v, want enabled working-only JSONL report", got.Report)
 	}
 	definitions := got.EnabledProbeDefinitions()
 	if len(definitions) != 28 || definitions[0].Name != "ssh" ||
@@ -259,7 +260,7 @@ func TestExampleConfiguration(t *testing.T) {
 		!reflect.DeepEqual(configuration.ExpandedDiscoveryPorts(), []int{22, 80, 443, 445, 3389, 5985}) {
 		t.Errorf("example discovery settings = %#v", configuration.Discovery)
 	}
-	if configuration.Report.Enabled || configuration.Report.Destination != "scan-report.json" ||
+	if configuration.Report.Enabled || configuration.Report.OnlyWorking || configuration.Report.Destination != "scan-report.json" ||
 		configuration.Report.Format != ReportFormatJSON {
 		t.Errorf("example report settings = %#v", configuration.Report)
 	}

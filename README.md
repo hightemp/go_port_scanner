@@ -27,7 +27,7 @@ inclusive port ranges.
 - Optional protocol handshakes for remote access, databases, brokers,
   key/value stores, and Windows/Active Directory services.
 - Optional `text`, `json`, `jsonl`, and `csv` reports to stdout, stderr, or a
-  file.
+  file, with working-only result filtering.
 - Quiet, info, debug, and trace output levels.
 - Static release binaries for Linux, macOS, and Windows on amd64 and arm64.
 
@@ -133,6 +133,7 @@ discovery:
 
 report:
   enabled: false
+  only_working: false
   destination: scan-report.json
   format: json
 ```
@@ -253,6 +254,7 @@ Final reports are optional and disabled by default:
 ```yaml
 report:
   enabled: true
+  only_working: false
   destination: reports/scan.json
   format: json
 ```
@@ -267,7 +269,7 @@ Missing parent directories are created automatically. Existing report files
 are replaced only after the scan reaches report generation. The active YAML
 configuration file is protected from being used as the report destination.
 When a report is sent to `stdout`, regular open-port output and diagnostic logs
-are redirected to `stderr`, keeping JSON, JSONL, or CSV stdout valid for pipes.
+are redirected to `stderr`, keeping report stdout clean for pipes.
 
 Available formats:
 
@@ -278,12 +280,19 @@ Available formats:
 | `jsonl` | Metadata, discovery, open-port, and summary records, one JSON object per line |
 | `csv` | Normalized metadata, discovery, open-port, probe, and summary rows |
 
-Reports include requested and scanned targets, discovery availability, open
-ports, connection durations, protocol handshake results, and aggregate scan
-statistics. Individual closed-port records are intentionally not retained;
-their refused, timeout, unreachable, and other-error counts are included in
-the summary. If the port scan is interrupted, the partial report has status
-`interrupted`, the completed-check count, and the interruption error.
+With `report.only_working: false`, every format includes requested and scanned
+targets, discovery availability, open ports, connection durations, protocol
+handshake results, and aggregate scan statistics. Individual closed-port
+records are intentionally not retained; their refused, timeout, unreachable,
+and other-error counts are included in the summary.
+
+Set `report.only_working: true` with any format to retain only available
+discovery results, targets with an available host or open port, open TCP ports,
+and successful protocol probes. Open ports remain in the report even if every
+configured handshake fails because the TCP connection itself worked. Filtered
+summary counters describe only the retained open ports. Scan status and a
+top-level interruption error are preserved so a partial result cannot be
+mistaken for a complete scan.
 
 ### Proxy pool
 
@@ -428,7 +437,7 @@ internal/discovery/   optional TCP and ICMP host discovery
 internal/logging/     verbosity-aware output
 internal/probe/       modular application-protocol handshakes
 internal/proxypool/   proxy parsing, selection, and dialing
-internal/report/      text, JSON, JSONL, and CSV report serialization
+internal/report/      text, JSON, JSONL, CSV, and result filtering
 internal/scanner/     concurrent TCP scanner
 ```
 

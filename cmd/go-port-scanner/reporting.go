@@ -156,6 +156,9 @@ func writeConfiguredReport(
 	if !configuration.Report.Enabled {
 		return nil
 	}
+	if configuration.Report.OnlyWorking {
+		document = report.FilterWorking(document)
+	}
 	if err := report.WriteDestination(
 		configuration.Report.Destination,
 		report.Format(configuration.Report.Format),

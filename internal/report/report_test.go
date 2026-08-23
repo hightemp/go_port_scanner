@@ -224,6 +224,7 @@ func testDocument() Document {
 				Duration: "1ms",
 				Probes: []ProbeResult{
 					{Protocol: "http", Status: "ok", Duration: "500µs", Detail: "=danger\nline"},
+					{Protocol: "https", Status: "failed", Error: "TLS handshake failed"},
 				},
 			},
 		},

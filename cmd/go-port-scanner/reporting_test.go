@@ -144,6 +144,51 @@ func TestWriteConfiguredReportDisabled(t *testing.T) {
 	}
 }
 
+func TestWriteConfiguredReportOnlyWorking(t *testing.T) {
+	t.Parallel()
+
+	configuration := appconfig.Default()
+	configuration.Report.Enabled = true
+	configuration.Report.OnlyWorking = true
+	configuration.Report.Destination = report.DestinationStdout
+	configuration.Report.Format = appconfig.ReportFormatJSON
+	document := report.Document{
+		RequestedTargets: []string{"up", "down"},
+		ScannedTargets:   []string{"up", "down"},
+		Discovery: []report.DiscoveryResult{
+			{Target: "up", Available: true},
+			{Target: "down", Error: "timeout"},
+		},
+		OpenPorts: []report.OpenPort{{
+			Target: "up",
+			Port:   443,
+			Probes: []report.ProbeResult{
+				{Protocol: "https", Status: "ok", Detail: "HTTP 200"},
+				{Protocol: "http", Status: "failed", Error: "invalid response"},
+			},
+		}},
+		Summary: report.Summary{Total: 2, Completed: 2, Open: 1, Closed: 1, Refused: 1},
+	}
+
+	var output bytes.Buffer
+	if err := writeConfiguredReport(configuration, document, &output, io.Discard); err != nil {
+		t.Fatalf("writeConfiguredReport() error = %v", err)
+	}
+	var filtered report.Document
+	if err := json.Unmarshal(output.Bytes(), &filtered); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if !reflect.DeepEqual(filtered.RequestedTargets, []string{"up"}) ||
+		len(filtered.Discovery) != 1 || len(filtered.OpenPorts) != 1 ||
+		len(filtered.OpenPorts[0].Probes) != 1 || filtered.OpenPorts[0].Probes[0].Protocol != "https" {
+		t.Errorf("filtered report = %#v", filtered)
+	}
+	wantSummary := report.Summary{Total: 1, Completed: 1, Open: 1}
+	if filtered.Summary != wantSummary {
+		t.Errorf("filtered summary = %#v, want %#v", filtered.Summary, wantSummary)
+	}
+}
+
 func TestRunWritesJSONReportToStdout(t *testing.T) {
 	t.Parallel()
 

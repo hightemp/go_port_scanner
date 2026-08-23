@@ -40,6 +40,8 @@ discovery:
 # value is treated as a file path. Missing parent directories are created.
 report:
   enabled: false
+  # Keep only available hosts, open ports, and successful protocol probes.
+  only_working: false
   destination: scan-report.json
   # Available values: text, json, jsonl, csv.
   format: json

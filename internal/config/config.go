@@ -166,6 +166,7 @@ type Proxy struct {
 // Report contains optional scan report output settings.
 type Report struct {
 	Enabled     bool         `yaml:"enabled"`
+	OnlyWorking bool         `yaml:"only_working"`
 	Destination string       `yaml:"destination"`
 	Format      ReportFormat `yaml:"format"`
 }
@@ -264,6 +265,7 @@ func Default() Config {
 		Probes: defaultProbes(),
 		Report: Report{
 			Enabled:     false,
+			OnlyWorking: false,
 			Destination: "scan-report.json",
 			Format:      ReportFormatJSON,
 		},
