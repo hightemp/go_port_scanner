@@ -55,6 +55,7 @@ type Document struct {
 // DiscoveryResult describes whether one requested host passed discovery.
 type DiscoveryResult struct {
 	Target    string `json:"target"`
+	Hostname  string `json:"hostname,omitempty"`
 	Available bool   `json:"available"`
 	Method    string `json:"method,omitempty"`
 	Error     string `json:"error,omitempty"`
@@ -63,6 +64,7 @@ type DiscoveryResult struct {
 // OpenPort describes one successful TCP connection and optional probes.
 type OpenPort struct {
 	Target   string        `json:"target"`
+	Hostname string        `json:"hostname,omitempty"`
 	Port     int           `json:"port"`
 	Duration string        `json:"duration"`
 	Probes   []ProbeResult `json:"probes,omitempty"`
@@ -275,7 +277,7 @@ func writeText(writer io.Writer, document Document) error {
 		if result.Available {
 			status = "available"
 		}
-		line := fmt.Sprintf("DISCOVERY %s: %s", textSafe(result.Target), status)
+		line := fmt.Sprintf("DISCOVERY %s: %s", targetWithHostname(result.Target, result.Hostname), status)
 		if result.Method != "" {
 			line += " via " + result.Method
 		}
@@ -287,7 +289,7 @@ func writeText(writer io.Writer, document Document) error {
 	for _, openPort := range document.OpenPorts {
 		lines = append(lines, fmt.Sprintf(
 			"OPEN %s in %s",
-			textSafe(net.JoinHostPort(openPort.Target, strconv.Itoa(openPort.Port))),
+			targetWithHostname(net.JoinHostPort(openPort.Target, strconv.Itoa(openPort.Port)), openPort.Hostname),
 			openPort.Duration,
 		))
 		for _, probe := range openPort.Probes {
@@ -320,7 +322,7 @@ func writeText(writer io.Writer, document Document) error {
 
 func writeCSV(writer io.Writer, document Document) error {
 	csvWriter := csv.NewWriter(writer)
-	rows := [][]string{{"record_type", "target", "port", "duration", "protocol", "status", "detail", "error", "metric", "value"}}
+	rows := [][]string{{"record_type", "target", "hostname", "port", "duration", "protocol", "status", "detail", "error", "metric", "value"}}
 	metadata := [][2]string{
 		{"schema_version", strconv.Itoa(document.SchemaVersion)},
 		{"status", document.Status},
@@ -333,25 +335,26 @@ func writeCSV(writer io.Writer, document Document) error {
 		metadata = append(metadata, [2]string{"error", document.Error})
 	}
 	for _, item := range metadata {
-		rows = append(rows, csvRow("metadata", "", "", "", "", "", "", "", item[0], item[1]))
+		rows = append(rows, csvRow("metadata", "", "", "", "", "", "", "", "", item[0], item[1]))
 	}
 	for _, target := range document.RequestedTargets {
-		rows = append(rows, csvRow("requested_target", target, "", "", "", "requested", "", "", "", ""))
+		rows = append(rows, csvRow("requested_target", target, "", "", "", "", "requested", "", "", "", ""))
 	}
 	for _, target := range document.ScannedTargets {
-		rows = append(rows, csvRow("scanned_target", target, "", "", "", "scanned", "", "", "", ""))
+		rows = append(rows, csvRow("scanned_target", target, "", "", "", "", "scanned", "", "", "", ""))
 	}
 	for _, result := range document.Discovery {
 		status := "unavailable"
 		if result.Available {
 			status = "available"
 		}
-		rows = append(rows, csvRow("discovery", result.Target, "", "", result.Method, status, "", result.Error, "", ""))
+		rows = append(rows, csvRow("discovery", result.Target, result.Hostname, "", "", result.Method, status, "", result.Error, "", ""))
 	}
 	for _, openPort := range document.OpenPorts {
 		rows = append(rows, csvRow(
 			"open_port",
 			openPort.Target,
+			openPort.Hostname,
 			strconv.Itoa(openPort.Port),
 			openPort.Duration,
 			"tcp",
@@ -365,6 +368,7 @@ func writeCSV(writer io.Writer, document Document) error {
 			rows = append(rows, csvRow(
 				"probe",
 				openPort.Target,
+				openPort.Hostname,
 				strconv.Itoa(openPort.Port),
 				probe.Duration,
 				probe.Protocol,
@@ -387,7 +391,7 @@ func writeCSV(writer io.Writer, document Document) error {
 		{"other_errors", strconv.Itoa(document.Summary.OtherErrors)},
 	}
 	for _, item := range summary {
-		rows = append(rows, csvRow("summary", "", "", "", "", "", "", "", item[0], item[1]))
+		rows = append(rows, csvRow("summary", "", "", "", "", "", "", "", "", item[0], item[1]))
 	}
 	if err := csvWriter.WriteAll(rows); err != nil {
 		return fmt.Errorf("encode CSV report: %w", err)
@@ -418,4 +422,12 @@ func csvSafe(value string) string {
 func textSafe(value string) string {
 	value = strings.ReplaceAll(value, "\r", "\\r")
 	return strings.ReplaceAll(value, "\n", "\\n")
+}
+
+func targetWithHostname(target, hostname string) string {
+	target = textSafe(target)
+	if hostname == "" {
+		return target
+	}
+	return target + " (" + textSafe(hostname) + ")"
 }

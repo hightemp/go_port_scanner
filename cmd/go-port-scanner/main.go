@@ -61,6 +61,19 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 	startedAt := time.Now()
 	var discoveryResults []discovery.Result
+	hostnames := make(map[string]string)
+	if configuration.ReverseDNS.Enabled {
+		hostnames, err = resolveHostnames(
+			scanContext,
+			logger,
+			targets,
+			configuration.ReverseDNS,
+			nil,
+		)
+		if err != nil {
+			return err
+		}
+	}
 
 	var scanDialer scanner.Dialer
 	if configuration.Proxy.Enabled {
@@ -182,7 +195,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			if event.Kind == scanner.EventOpen {
 				openEvents = append(openEvents, event)
 			}
-			handleScanEvent(logger, event, len(targets) > 1)
+			handleScanEvent(logger, event, len(targets) > 1, hostnames[event.Host])
 		case <-progress:
 			statistics.logProgress(logger, time.Since(scanStartedAt))
 		}
@@ -210,6 +223,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		openEvents,
 		statistics,
 		scanError,
+		hostnames,
 	)
 	if err := writeConfiguredReport(configuration, document, stdout, stderr); err != nil {
 		resultError = errors.Join(resultError, err)
@@ -226,12 +240,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	return resultError
 }
 
-func handleScanEvent(logger *logging.Logger, event scanner.Event, multipleTargets bool) {
+func handleScanEvent(logger *logging.Logger, event scanner.Event, multipleTargets bool, hostname string) {
 	switch event.Kind {
 	case scanner.EventChecking:
 		logger.Tracef("Checking %s port %d...\n", event.Host, event.Port)
 	case scanner.EventOpen:
-		logger.Printf("%s\n", formatOpenEvent(event, multipleTargets))
+		logger.Printf("%s\n", formatOpenEvent(event, multipleTargets, hostname))
 		logger.Debugf(
 			"Connection established to %s port %d in %v\n",
 			event.Host,

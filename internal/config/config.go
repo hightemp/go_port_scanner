@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	maxPort                 = 65535
-	defaultWorkers          = 10000
-	defaultMaxTargets       = 65536
-	defaultDiscoveryWorkers = 256
+	maxPort                  = 65535
+	defaultWorkers           = 10000
+	defaultMaxTargets        = 65536
+	defaultDiscoveryWorkers  = 256
+	defaultReverseDNSWorkers = 64
 )
 
 // DefaultPath is the configuration file loaded when -config is not specified.
@@ -155,6 +156,13 @@ type Discovery struct {
 	TCPPorts []PortRange       `yaml:"tcp_ports"`
 }
 
+// ReverseDNS contains optional PTR lookup settings for IP targets.
+type ReverseDNS struct {
+	Enabled bool     `yaml:"enabled"`
+	Workers int      `yaml:"workers"`
+	Timeout Duration `yaml:"timeout"`
+}
+
 // Proxy contains optional HTTP, HTTPS, and SOCKS5 proxy pool settings.
 type Proxy struct {
 	Enabled               bool          `yaml:"enabled"`
@@ -221,13 +229,14 @@ type ProbeDefinition struct {
 
 // Config contains the complete scanner configuration.
 type Config struct {
-	Targets   []string    `yaml:"targets"`
-	Ports     []PortRange `yaml:"ports"`
-	Scanner   Scanner     `yaml:"scanner"`
-	Discovery Discovery   `yaml:"discovery"`
-	Proxy     Proxy       `yaml:"proxy"`
-	Probes    Probes      `yaml:"probes"`
-	Report    Report      `yaml:"report"`
+	Targets    []string    `yaml:"targets"`
+	Ports      []PortRange `yaml:"ports"`
+	Scanner    Scanner     `yaml:"scanner"`
+	Discovery  Discovery   `yaml:"discovery"`
+	ReverseDNS ReverseDNS  `yaml:"reverse_dns"`
+	Proxy      Proxy       `yaml:"proxy"`
+	Probes     Probes      `yaml:"probes"`
+	Report     Report      `yaml:"report"`
 }
 
 // Default returns the built-in scanner configuration.
@@ -256,6 +265,11 @@ func Default() Config {
 				{Start: 3389, End: 3389},
 				{Start: 5985, End: 5985},
 			},
+		},
+		ReverseDNS: ReverseDNS{
+			Enabled: false,
+			Workers: defaultReverseDNSWorkers,
+			Timeout: Duration{Duration: time.Second},
 		},
 		Proxy: Proxy{
 			Enabled:  false,
@@ -351,6 +365,12 @@ func (c Config) Validate() error {
 	}
 	if err := c.validateDiscovery(); err != nil {
 		return err
+	}
+	if c.ReverseDNS.Workers < 1 {
+		return errors.New("reverse_dns.workers must be greater than zero")
+	}
+	if c.ReverseDNS.Timeout.Duration <= 0 {
+		return errors.New("reverse_dns.timeout must be greater than zero")
 	}
 	if c.Probes.Timeout.Duration <= 0 {
 		return errors.New("probes.timeout must be greater than zero")

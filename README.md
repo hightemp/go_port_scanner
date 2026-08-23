@@ -22,6 +22,7 @@ inclusive port ranges.
 - Multiple hostnames, individual IPs, CIDR subnets, and inclusive IP ranges.
 - Deduplication of overlapping target specifications and port ranges.
 - Optional parallel host discovery using TCP, ICMP, or ICMP with TCP fallback.
+- Optional bounded reverse DNS (PTR) lookup for IP targets.
 - HTTP, HTTPS CONNECT, and SOCKS5 proxy pools.
 - `round_robin`, `random`, and `least_connections` proxy selection.
 - Optional protocol handshakes for remote access, databases, brokers,
@@ -131,6 +132,11 @@ discovery:
   timeout: 500ms
   tcp_ports: [22, 80, 443, 445, 3389, 5985]
 
+reverse_dns:
+  enabled: false
+  workers: 64
+  timeout: 1s
+
 report:
   enabled: false
   only_working: false
@@ -157,6 +163,31 @@ the target list or raise the limit explicitly when a larger scan is intended.
 Ports accept individual values and inclusive ranges. Overlapping port ranges
 are also deduplicated in their configured order. The effective worker count
 never exceeds the total number of target/port checks.
+
+### Reverse DNS
+
+Reverse DNS is disabled by default. Enable it to resolve a PTR hostname once
+for each IP target before discovery and port scanning:
+
+```yaml
+reverse_dns:
+  enabled: true
+  workers: 64
+  timeout: 1s
+```
+
+Only IPv4 and IPv6 literals are queried; entries already specified as
+hostnames are skipped. Lookups use a separate bounded worker pool and apply
+`reverse_dns.timeout` to each IP. The first usable PTR name is displayed
+alongside the IP for open ports and is written to discovery and open-port
+report records. CSV reports use the `hostname` column; JSON and JSONL use the
+optional `hostname` field.
+
+A missing or timed-out PTR response does not make the host unavailable and
+does not stop the scan. At info level the scanner prints a resolved/attempted
+summary; debug level also prints every successful and failed PTR lookup.
+Reverse DNS uses the operating system resolver directly and is not routed
+through the configured proxy pool.
 
 ### Host discovery
 
@@ -276,15 +307,16 @@ Available formats:
 | Format | Contents |
 | --- | --- |
 | `text` | Human-readable discovery, open-port, probe, and summary lines |
-| `json` | One structured document with schema version `1` |
+| `json` | One structured document with schema version `2` |
 | `jsonl` | Metadata, discovery, open-port, and summary records, one JSON object per line |
 | `csv` | Normalized metadata, discovery, open-port, probe, and summary rows |
 
 With `report.only_working: false`, every format includes requested and scanned
 targets, discovery availability, open ports, connection durations, protocol
-handshake results, and aggregate scan statistics. Individual closed-port
-records are intentionally not retained; their refused, timeout, unreachable,
-and other-error counts are included in the summary.
+handshake results, and aggregate scan statistics. Resolved PTR hostnames are
+attached to discovery and open-port records. Individual closed-port records are
+intentionally not retained; their refused, timeout, unreachable, and
+other-error counts are included in the summary.
 
 Set `report.only_working: true` with any format to retain only available
 discovery results, targets with an available host or open port, open TCP ports,
@@ -400,8 +432,10 @@ TCP: 5432 [postgresql: failed (unexpected PostgreSQL SSL response 0x45)]
 ```
 
 For multiple targets the output includes the address, for example
-`TCP: 192.0.2.10:22`. Info mode adds lifecycle messages, debug mode adds timing
-and handshake details, and trace mode reports every attempted and closed port.
+`TCP: 192.0.2.10:22`. With reverse DNS enabled and a PTR record found, it is
+shown as `TCP: 192.0.2.10:22 (server.example)`. Info mode adds lifecycle
+messages, debug mode adds timing and handshake details, and trace mode reports
+every attempted and closed port.
 When `scanner.progress_interval` is greater than zero, info mode periodically
 prints completion percentage, checks per second, open-port count, and ETA. A
 final summary breaks failed checks down into timeouts, refused connections,
@@ -438,6 +472,7 @@ internal/logging/     verbosity-aware output
 internal/probe/       modular application-protocol handshakes
 internal/proxypool/   proxy parsing, selection, and dialing
 internal/report/      text, JSON, JSONL, CSV, and result filtering
+internal/reversedns/  optional bounded PTR hostname lookups
 internal/scanner/     concurrent TCP scanner
 ```
 

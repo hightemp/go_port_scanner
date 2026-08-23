@@ -9,10 +9,13 @@ import (
 	"github.com/hightemp/go_port_scanner/internal/scanner"
 )
 
-func formatOpenEvent(event scanner.Event, includeHost bool) string {
+func formatOpenEvent(event scanner.Event, includeHost bool, hostname string) string {
 	target := strconv.Itoa(event.Port)
-	if includeHost {
+	if includeHost || hostname != "" {
 		target = net.JoinHostPort(event.Host, target)
+	}
+	if hostname != "" {
+		target += " (" + hostname + ")"
 	}
 	if len(event.Probes) == 0 {
 		return "TCP: " + target

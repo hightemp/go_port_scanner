@@ -277,14 +277,17 @@ func TestProbeRegistryAndOutputFormatting(t *testing.T) {
 			{Protocol: "custom"},
 		},
 	}
-	got := formatOpenEvent(event, true)
-	for _, want := range []string{"TCP: [2001:db8::1]:22", "ssh: OpenSSH", "ftp: failed", "custom: ok"} {
+	got := formatOpenEvent(event, true, "router.example")
+	for _, want := range []string{"TCP: [2001:db8::1]:22 (router.example)", "ssh: OpenSSH", "ftp: failed", "custom: ok"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("formatOpenEvent() = %q, want %q", got, want)
 		}
 	}
-	if got := formatOpenEvent(scanner.Event{Port: 80}, false); got != "TCP: 80" {
+	if got := formatOpenEvent(scanner.Event{Port: 80}, false, ""); got != "TCP: 80" {
 		t.Errorf("formatOpenEvent() = %q, want TCP: 80", got)
+	}
+	if got := formatOpenEvent(scanner.Event{Host: "192.0.2.10", Port: 443}, false, "web.example"); got != "TCP: 192.0.2.10:443 (web.example)" {
+		t.Errorf("formatOpenEvent() = %q, want hostname and IP", got)
 	}
 }
 

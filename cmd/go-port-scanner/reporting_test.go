@@ -48,20 +48,23 @@ func TestBuildReportDocument(t *testing.T) {
 		}},
 		scanStats{total: 2, completed: 1, open: 1},
 		scanError,
+		map[string]string{"up": "up.example", "down": "down.example"},
 	)
 
 	if document.Status != "interrupted" || document.Error != scanError.Error() ||
-		document.Duration != "1s" || document.PortCount != 2 || document.SchemaVersion != 1 {
+		document.Duration != "1s" || document.PortCount != 2 || document.SchemaVersion != 2 {
 		t.Errorf("document metadata = %#v", document)
 	}
 	if !reflect.DeepEqual(document.RequestedTargets, []string{"up", "down"}) ||
 		!reflect.DeepEqual(document.ScannedTargets, []string{"up"}) {
 		t.Errorf("document targets = %v / %v", document.RequestedTargets, document.ScannedTargets)
 	}
-	if len(document.Discovery) != 2 || !document.Discovery[0].Available || document.Discovery[1].Error != "timeout" {
+	if len(document.Discovery) != 2 || !document.Discovery[0].Available ||
+		document.Discovery[0].Hostname != "up.example" || document.Discovery[1].Error != "timeout" {
 		t.Errorf("document discovery = %#v", document.Discovery)
 	}
 	if len(document.OpenPorts) != 1 || len(document.OpenPorts[0].Probes) != 2 ||
+		document.OpenPorts[0].Hostname != "up.example" ||
 		document.OpenPorts[0].Probes[0].Status != "ok" ||
 		document.OpenPorts[0].Probes[1].Status != "failed" {
 		t.Errorf("document open ports = %#v", document.OpenPorts)
@@ -72,7 +75,7 @@ func TestBuildCompletedReportDocument(t *testing.T) {
 	t.Parallel()
 
 	startedAt := time.Now()
-	document := buildReportDocument(startedAt, startedAt, nil, nil, 0, nil, nil, scanStats{}, nil)
+	document := buildReportDocument(startedAt, startedAt, nil, nil, 0, nil, nil, scanStats{}, nil, nil)
 	if document.Status != "completed" || document.Error != "" {
 		t.Errorf("document = %#v", document)
 	}

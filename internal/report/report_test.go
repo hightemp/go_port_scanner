@@ -29,10 +29,10 @@ func TestWriteFormats(t *testing.T) {
 				t.Helper()
 				for _, want := range []string{
 					"Go Port Scanner report",
-					"DISCOVERY host-a: available via tcp",
+					"DISCOVERY host-a (alpha.example): available via tcp",
 					"REQUESTED host-a",
 					"SCANNED host-b",
-					"OPEN host-a:80",
+					"OPEN host-a:80 (alpha.example)",
 					"OPEN host-b:443",
 					`danger\nline`,
 					"SUMMARY completed=4/4 open=2 closed=2",
@@ -52,8 +52,9 @@ func TestWriteFormats(t *testing.T) {
 				if err := json.Unmarshal([]byte(output), &document); err != nil {
 					t.Fatalf("json.Unmarshal() error = %v", err)
 				}
-				if document.SchemaVersion != 1 || len(document.OpenPorts) != 2 ||
-					document.OpenPorts[0].Target != "host-a" || document.OpenPorts[1].Target != "host-b" {
+				if document.SchemaVersion != 2 || len(document.OpenPorts) != 2 ||
+					document.OpenPorts[0].Target != "host-a" || document.OpenPorts[0].Hostname != "alpha.example" ||
+					document.OpenPorts[1].Target != "host-b" {
 					t.Errorf("JSON document = %#v", document)
 				}
 			},
@@ -93,13 +94,13 @@ func TestWriteFormats(t *testing.T) {
 					t.Fatalf("csv.ReadAll() error = %v", err)
 				}
 				if len(rows) < 10 || !reflect.DeepEqual(rows[0], []string{
-					"record_type", "target", "port", "duration", "protocol", "status", "detail", "error", "metric", "value",
+					"record_type", "target", "hostname", "port", "duration", "protocol", "status", "detail", "error", "metric", "value",
 				}) {
 					t.Fatalf("CSV rows = %#v", rows)
 				}
 				foundSafeDetail := false
 				for _, row := range rows {
-					if row[0] == "probe" && row[6] == "'=danger\nline" {
+					if row[0] == "probe" && row[2] == "alpha.example" && row[7] == "'=danger\nline" {
 						foundSafeDetail = true
 					}
 				}
@@ -204,7 +205,7 @@ func TestWriteDestinationRejectsEmpty(t *testing.T) {
 func testDocument() Document {
 	startedAt := time.Date(2026, time.August, 23, 10, 0, 0, 0, time.UTC)
 	return Document{
-		SchemaVersion:    1,
+		SchemaVersion:    2,
 		Status:           "completed",
 		StartedAt:        startedAt,
 		FinishedAt:       startedAt.Add(2 * time.Second),
@@ -213,13 +214,14 @@ func testDocument() Document {
 		ScannedTargets:   []string{"host-a", "host-b"},
 		PortCount:        2,
 		Discovery: []DiscoveryResult{
-			{Target: "host-a", Available: true, Method: "tcp"},
+			{Target: "host-a", Hostname: "alpha.example", Available: true, Method: "tcp"},
 			{Target: "host-b", Available: false, Error: "timeout"},
 		},
 		OpenPorts: []OpenPort{
 			{Target: "host-b", Port: 443, Duration: "2ms"},
 			{
 				Target:   "host-a",
+				Hostname: "alpha.example",
 				Port:     80,
 				Duration: "1ms",
 				Probes: []ProbeResult{

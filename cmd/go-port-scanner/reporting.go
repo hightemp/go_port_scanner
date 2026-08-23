@@ -79,6 +79,7 @@ func buildReportDocument(
 	openEvents []scanner.Event,
 	statistics scanStats,
 	scanError error,
+	hostnames map[string]string,
 ) report.Document {
 	status := "completed"
 	errorMessage := ""
@@ -88,7 +89,7 @@ func buildReportDocument(
 	}
 
 	document := report.Document{
-		SchemaVersion:    1,
+		SchemaVersion:    2,
 		Status:           status,
 		StartedAt:        startedAt,
 		FinishedAt:       finishedAt,
@@ -114,6 +115,7 @@ func buildReportDocument(
 	for _, result := range discoveryResults {
 		discoveryResult := report.DiscoveryResult{
 			Target:    result.Target,
+			Hostname:  hostnames[result.Target],
 			Available: result.Alive,
 			Method:    string(result.Method),
 		}
@@ -125,6 +127,7 @@ func buildReportDocument(
 	for _, event := range openEvents {
 		openPort := report.OpenPort{
 			Target:   event.Host,
+			Hostname: hostnames[event.Host],
 			Port:     event.Port,
 			Duration: event.Duration.String(),
 			Probes:   make([]report.ProbeResult, 0, len(event.Probes)),

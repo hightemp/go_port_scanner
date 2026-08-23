@@ -32,6 +32,10 @@ discovery:
   workers: 12
   timeout: 200ms
   tcp_ports: [22, 80-81]
+reverse_dns:
+  enabled: true
+  workers: 8
+  timeout: 300ms
 proxy:
   enabled: true
   strategy: random
@@ -100,6 +104,10 @@ report:
 		!reflect.DeepEqual(got.ExpandedDiscoveryPorts(), []int{22, 80, 81}) {
 		t.Errorf("Discovery = %#v, want enabled TCP discovery", got.Discovery)
 	}
+	if !got.ReverseDNS.Enabled || got.ReverseDNS.Workers != 8 ||
+		got.ReverseDNS.Timeout.Duration != 300*time.Millisecond {
+		t.Errorf("ReverseDNS = %#v, want enabled lookup settings", got.ReverseDNS)
+	}
 	if !got.Proxy.Enabled || got.Proxy.Strategy != ProxyStrategyRandom ||
 		!got.Proxy.TLSInsecureSkipVerify || len(got.Proxy.URLs) != 2 {
 		t.Errorf("Proxy = %#v, want enabled random pool with two URLs", got.Proxy)
@@ -167,6 +175,8 @@ func TestDecodeValidation(t *testing.T) {
 		{name: "unknown discovery strategy", yaml: "discovery: {strategy: unknown}\n"},
 		{name: "zero discovery workers", yaml: "discovery: {workers: 0}\n"},
 		{name: "zero discovery timeout", yaml: "discovery: {timeout: 0s}\n"},
+		{name: "zero reverse DNS workers", yaml: "reverse_dns: {workers: 0}\n"},
+		{name: "zero reverse DNS timeout", yaml: "reverse_dns: {timeout: 0s}\n"},
 		{name: "TCP discovery without ports", yaml: "discovery: {enabled: true, strategy: tcp, tcp_ports: []}\n"},
 		{name: "invalid discovery port", yaml: "discovery: {enabled: true, strategy: tcp, tcp_ports: [65536]}\n"},
 		{name: "unknown verbosity", yaml: "scanner: {verbosity: verbose}\n"},
@@ -259,6 +269,10 @@ func TestExampleConfiguration(t *testing.T) {
 		configuration.Discovery.Strategy != DiscoveryStrategyICMPThenTCP ||
 		!reflect.DeepEqual(configuration.ExpandedDiscoveryPorts(), []int{22, 80, 443, 445, 3389, 5985}) {
 		t.Errorf("example discovery settings = %#v", configuration.Discovery)
+	}
+	if configuration.ReverseDNS.Enabled || configuration.ReverseDNS.Workers != 64 ||
+		configuration.ReverseDNS.Timeout.Duration != time.Second {
+		t.Errorf("example reverse DNS settings = %#v", configuration.ReverseDNS)
 	}
 	if configuration.Report.Enabled || configuration.Report.OnlyWorking || configuration.Report.Destination != "scan-report.json" ||
 		configuration.Report.Format != ReportFormatJSON {

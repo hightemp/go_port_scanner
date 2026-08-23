@@ -36,6 +36,14 @@ discovery:
   # connection refusal means that the host is reachable.
   tcp_ports: [22, 80, 443, 445, 3389, 5985]
 
+# Optional PTR lookup for IP targets. Hostname targets are skipped. A missing
+# or timed-out PTR record is logged at debug level and does not stop the scan.
+reverse_dns:
+  enabled: false
+  workers: 64
+  # Per-IP lookup timeout.
+  timeout: 1s
+
 # Optional final report. Destinations stdout and stderr are reserved; any other
 # value is treated as a file path. Missing parent directories are created.
 report:
