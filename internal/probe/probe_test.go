@@ -42,17 +42,12 @@ func TestProtocolProbes(t *testing.T) {
 			server: writeServer("220-welcome\r\n220 ready\r\n"),
 		},
 		{
-			name: "postgresql", protocol: postgresqlProbe{}, wantDetail: "SSL supported",
-			server: func(connection net.Conn) error {
-				request := make([]byte, 8)
-				if _, err := io.ReadFull(connection, request); err != nil {
-					return err
-				}
-				if binary.BigEndian.Uint32(request[4:]) != 80877103 {
-					return fmt.Errorf("unexpected SSLRequest %x", request)
-				}
-				return writeAll(connection, []byte{'S'})
-			},
+			name:       "postgresql",
+			protocol:   postgresqlProbe{},
+			wantDetail: "SSL not supported",
+			server: postgresqlServer(nil, 'N', postgresqlMessage('R', []byte{
+				0, 0, 0, postgresqlAuthenticationOK,
+			})),
 		},
 		{
 			name: "mysql", protocol: mysqlProbe{}, wantDetail: "8.4.0",
@@ -258,6 +253,14 @@ func TestTLSProbes(t *testing.T) {
 		wantDetail string
 	}{
 		{
+			name:       "postgresql",
+			protocol:   postgresqlProbe{tlsInsecureSkipVerify: true},
+			wantDetail: "SSL supported",
+			server: postgresqlServer(&certificate, 'S', postgresqlMessage('E', []byte(
+				"SERROR\x00C28000\x00Mrole does not exist\x00\x00",
+			))),
+		},
+		{
 			name:       "explicit",
 			protocol:   ftpsExplicitProbe{tlsInsecureSkipVerify: true},
 			wantDetail: "234 continue",
@@ -410,6 +413,10 @@ func TestProtocolRejections(t *testing.T) {
 		{
 			name: "postgresql invalid", protocol: postgresqlProbe{},
 			server: readThenWriteServer(8, []byte{'X'}),
+		},
+		{
+			name: "postgresql rejects SSH banner", protocol: postgresqlProbe{tlsInsecureSkipVerify: true},
+			server: readThenWriteServer(8, []byte("SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.13\r\n")),
 		},
 		{
 			name: "mysql protocol", protocol: mysqlProbe{},
@@ -702,6 +709,62 @@ func readThenWriteServer(readBytes int, response []byte) func(net.Conn) error {
 		}
 		return writeAll(connection, response)
 	}
+}
+
+func postgresqlServer(certificate *tls.Certificate, sslResponse byte, startupResponse []byte) func(net.Conn) error {
+	return func(connection net.Conn) error {
+		sslRequest := make([]byte, 8)
+		if _, err := io.ReadFull(connection, sslRequest); err != nil {
+			return err
+		}
+		if binary.BigEndian.Uint32(sslRequest[:4]) != 8 || binary.BigEndian.Uint32(sslRequest[4:]) != 80877103 {
+			return fmt.Errorf("unexpected PostgreSQL SSLRequest %x", sslRequest)
+		}
+		if err := writeAll(connection, []byte{sslResponse}); err != nil {
+			return err
+		}
+
+		postgresConnection := connection
+		if sslResponse == 'S' {
+			if certificate == nil {
+				return errors.New("PostgreSQL TLS certificate is missing")
+			}
+			tlsConnection := tls.Server(connection, &tls.Config{
+				Certificates: []tls.Certificate{*certificate},
+				MinVersion:   tls.VersionTLS12,
+			})
+			if err := tlsConnection.Handshake(); err != nil {
+				return err
+			}
+			postgresConnection = tlsConnection
+		}
+
+		startupLength := make([]byte, 4)
+		if _, err := io.ReadFull(postgresConnection, startupLength); err != nil {
+			return err
+		}
+		length := binary.BigEndian.Uint32(startupLength)
+		if length < 8 || length > maxPostgreSQLMessageLength {
+			return fmt.Errorf("invalid PostgreSQL StartupMessage length %d", length)
+		}
+		startup := make([]byte, length)
+		copy(startup[:4], startupLength)
+		if _, err := io.ReadFull(postgresConnection, startup[4:]); err != nil {
+			return err
+		}
+		if !slices.Equal(startup, postgresqlStartupMessage()) {
+			return fmt.Errorf("unexpected PostgreSQL StartupMessage %x", startup)
+		}
+		return writeAll(postgresConnection, startupResponse)
+	}
+}
+
+func postgresqlMessage(messageType byte, payload []byte) []byte {
+	message := make([]byte, 5+len(payload))
+	message[0] = messageType
+	binary.BigEndian.PutUint32(message[1:5], uint32(4+len(payload)))
+	copy(message[5:], payload)
+	return message
 }
 
 func kerberosServerResponse(response []byte) func(net.Conn) error {

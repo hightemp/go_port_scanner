@@ -422,10 +422,12 @@ methods. SOCKS4 has no negotiation-only message, so its required `CONNECT`
 request targets the deliberately invalid `0.0.0.0:0` endpoint rather than a
 real third-party host.
 
-MySQL handshakes also recognize MariaDB-compatible greetings. RabbitMQ uses
-AMQP 0-9-1. Explicit FTPS performs `AUTH TLS`; implicit FTPS starts directly
-with TLS. The probe TLS verification setting applies to HTTPS, FTPS, LDAPS, and
-WinRM HTTPS.
+The PostgreSQL probe confirms the one-byte SSL response with a TLS handshake
+when SSL is supported, then validates a framed startup response. MySQL
+handshakes also recognize MariaDB-compatible greetings. RabbitMQ uses AMQP
+0-9-1. Explicit FTPS performs `AUTH TLS`; implicit FTPS starts directly with
+TLS. The probe TLS verification setting applies to HTTPS, FTPS, PostgreSQL,
+LDAPS, and WinRM HTTPS.
 
 If multiple probes share a port (for example, FTP and explicit FTPS on port
 21), each probe gets a new connection. When proxies are enabled, this also

@@ -73,7 +73,7 @@ proxy:
 probes:
   enabled: false
   timeout: 2s
-  # Applies to HTTPS, FTPS, LDAPS, and WinRM HTTPS certificates. Keep false in production.
+  # Applies to HTTPS, FTPS, PostgreSQL, LDAPS, and WinRM HTTPS certificates. Keep false in production.
   tls_insecure_skip_verify: false
 
   ssh:

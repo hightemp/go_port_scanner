@@ -152,7 +152,7 @@ func newProtocol(name string, tlsInsecureSkipVerify bool) (Prober, error) {
 	case "dns":
 		return dnsProbe{}, nil
 	case "postgresql":
-		return postgresqlProbe{}, nil
+		return postgresqlProbe{tlsInsecureSkipVerify: tlsInsecureSkipVerify}, nil
 	case "mysql":
 		return mysqlProbe{}, nil
 	case "mongodb":
