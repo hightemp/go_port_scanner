@@ -63,7 +63,7 @@ proxy:
 probes:
   enabled: false
   timeout: 2s
-  # Applies to FTPS, LDAPS, and WinRM HTTPS certificates. Keep false in production.
+  # Applies to HTTPS, FTPS, LDAPS, and WinRM HTTPS certificates. Keep false in production.
   tls_insecure_skip_verify: false
 
   ssh:
@@ -82,6 +82,18 @@ probes:
   ftps_implicit:
     enabled: true
     ports: [990]
+
+  # HTTP sends HEAD /. HTTPS first performs a TLS handshake. SOCKS performs
+  # only SOCKS5 authentication-method negotiation and never sends CONNECT.
+  http:
+    enabled: true
+    ports: [80]
+  https:
+    enabled: true
+    ports: [443]
+  socks:
+    enabled: true
+    ports: [1080]
 
   postgresql:
     enabled: true

@@ -322,6 +322,15 @@ probes:
   ssh:
     enabled: true
     ports: [22, 2200-2210]
+  http:
+    enabled: true
+    ports: [80, 8080]
+  https:
+    enabled: true
+    ports: [443, 8443]
+  socks:
+    enabled: true
+    ports: [1080]
   postgresql:
     enabled: true
     ports: [5432]
@@ -339,6 +348,7 @@ port is also present in the top-level `ports` scan list.
 | --- | --- | --- |
 | Remote access | `ssh` | 22 |
 | FTP | `ftp`, `ftps_explicit`, `ftps_implicit` | 21, 21, 990 |
+| Web/proxies | `http`, `https`, `socks` | 80, 443, 1080 |
 | Databases/search | `postgresql`, `mysql`, `mongodb`, `mssql`, `cassandra`, `elasticsearch` | 5432, 3306, 27017, 1433, 9042, 9200 |
 | Brokers/queues | `rabbitmq`, `kafka`, `nats`, `mqtt` | 5672, 9092, 4222, 1883 |
 | Key/value stores | `redis`, `memcached`, `etcd` | 6379, 11211, 2379 |
@@ -346,10 +356,15 @@ port is also present in the top-level `ports` scan list.
 | Active Directory | `kerberos`, `ldap`, `ldaps` | 88, 389/3268, 636/3269 |
 | Windows management | `winrm`, `winrm_https` | 5985, 5986 |
 
+The HTTP probe sends `HEAD /` and accepts any valid HTTP response. HTTPS first
+performs a TLS handshake and then sends the same request. The SOCKS probe only
+negotiates SOCKS5 authentication methods; it never sends `CONNECT` or asks the
+proxy to contact another host.
+
 MySQL handshakes also recognize MariaDB-compatible greetings. RabbitMQ uses
 AMQP 0-9-1. Explicit FTPS performs `AUTH TLS`; implicit FTPS starts directly
-with TLS. The probe TLS verification setting applies to FTPS, LDAPS, and WinRM
-HTTPS.
+with TLS. The probe TLS verification setting applies to HTTPS, FTPS, LDAPS, and
+WinRM HTTPS.
 
 If multiple probes share a port (for example, FTP and explicit FTPS on port
 21), each probe gets a new connection. When proxies are enabled, this also

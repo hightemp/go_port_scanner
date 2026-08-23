@@ -185,6 +185,9 @@ type Probes struct {
 	FTP                   ProtocolProbe `yaml:"ftp"`
 	FTPSExplicit          ProtocolProbe `yaml:"ftps_explicit"`
 	FTPSImplicit          ProtocolProbe `yaml:"ftps_implicit"`
+	HTTP                  ProtocolProbe `yaml:"http"`
+	HTTPS                 ProtocolProbe `yaml:"https"`
+	SOCKS                 ProtocolProbe `yaml:"socks"`
 	PostgreSQL            ProtocolProbe `yaml:"postgresql"`
 	MySQL                 ProtocolProbe `yaml:"mysql"`
 	MongoDB               ProtocolProbe `yaml:"mongodb"`
@@ -432,6 +435,9 @@ func defaultProbes() Probes {
 		FTP:           protocol(single(21)),
 		FTPSExplicit:  protocol(single(21)),
 		FTPSImplicit:  protocol(single(990)),
+		HTTP:          protocol(single(80)),
+		HTTPS:         protocol(single(443)),
+		SOCKS:         protocol(single(1080)),
 		PostgreSQL:    protocol(single(5432)),
 		MySQL:         protocol(single(3306)),
 		MongoDB:       protocol(single(27017)),
@@ -463,6 +469,9 @@ func (c Config) probeProtocols() map[string]ProtocolProbe {
 		"ftp":           c.Probes.FTP,
 		"ftps_explicit": c.Probes.FTPSExplicit,
 		"ftps_implicit": c.Probes.FTPSImplicit,
+		"http":          c.Probes.HTTP,
+		"https":         c.Probes.HTTPS,
+		"socks":         c.Probes.SOCKS,
 		"postgresql":    c.Probes.PostgreSQL,
 		"mysql":         c.Probes.MySQL,
 		"mongodb":       c.Probes.MongoDB,
@@ -542,6 +551,9 @@ func (c Config) EnabledProbeDefinitions() []ProbeDefinition {
 		{name: "ftp", protocol: c.Probes.FTP},
 		{name: "ftps_explicit", protocol: c.Probes.FTPSExplicit},
 		{name: "ftps_implicit", protocol: c.Probes.FTPSImplicit},
+		{name: "http", protocol: c.Probes.HTTP},
+		{name: "https", protocol: c.Probes.HTTPS},
+		{name: "socks", protocol: c.Probes.SOCKS},
 		{name: "postgresql", protocol: c.Probes.PostgreSQL},
 		{name: "mysql", protocol: c.Probes.MySQL},
 		{name: "mongodb", protocol: c.Probes.MongoDB},

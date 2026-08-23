@@ -209,6 +209,48 @@ probes:
 	}
 }
 
+func TestRunReportsHTTPHandshake(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Server", "probe-test")
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	host, port, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
+	if err != nil {
+		t.Fatalf("net.SplitHostPort() error = %v", err)
+	}
+	configPath := t.TempDir() + "/config.yaml"
+	yamlConfig := fmt.Sprintf(`
+targets: [%s]
+ports: [%s]
+scanner:
+  workers: 1
+  dial_timeout: 1s
+  verbosity: quiet
+probes:
+  enabled: true
+  timeout: 1s
+  http:
+    enabled: true
+    ports: [%s]
+`, host, port, port)
+	if err := os.WriteFile(configPath, []byte(yamlConfig), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := run(context.Background(), []string{"-config", configPath}, &stdout, &bytes.Buffer{}); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	want := "[http: HTTP/1.1 204 No Content; server probe-test]"
+	if !strings.Contains(stdout.String(), want) {
+		t.Errorf("run() output = %q, want it to contain %q", stdout.String(), want)
+	}
+}
+
 func TestProbeRegistryAndOutputFormatting(t *testing.T) {
 	t.Parallel()
 
@@ -222,8 +264,8 @@ func TestProbeRegistryAndOutputFormatting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newProbeRegistry() error = %v", err)
 	}
-	if registry.Count() != 28 {
-		t.Errorf("Registry.Count() = %d, want 28", registry.Count())
+	if registry.Count() != 31 {
+		t.Errorf("Registry.Count() = %d, want 31", registry.Count())
 	}
 
 	event := scanner.Event{

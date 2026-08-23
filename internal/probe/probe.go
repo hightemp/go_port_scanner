@@ -134,6 +134,12 @@ func newProtocol(name string, tlsInsecureSkipVerify bool) (Prober, error) {
 		return ftpsExplicitProbe{tlsInsecureSkipVerify: tlsInsecureSkipVerify}, nil
 	case "ftps_implicit":
 		return ftpsImplicitProbe{tlsInsecureSkipVerify: tlsInsecureSkipVerify}, nil
+	case "http":
+		return httpProbe{}, nil
+	case "https":
+		return httpsProbe{tlsInsecureSkipVerify: tlsInsecureSkipVerify}, nil
+	case "socks":
+		return socksProbe{}, nil
 	case "postgresql":
 		return postgresqlProbe{}, nil
 	case "mysql":
